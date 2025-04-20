@@ -2,9 +2,6 @@
 
 # Script to start Docker container on Codespace startup
 
-# Ensure Docker daemon is running
-sudo service docker start
-
 # Check if the container is already running
 if docker ps -q -f name=agitated_cannon | grep -q .; then
     echo "Docker container agitated_cannon is already running."
