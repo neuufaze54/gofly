@@ -1,8 +1,17 @@
 {
-  "name": "GoFly Codespace",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-  "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
-  },
-  "postStartCommand": "bash /workspaces/gofly/.devcontainer/start-docker.sh"
+    "name": "GoFly Codespace",
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+        "ghcr.io/devcontainers/features/sshd:1": {
+            "version": "latest"
+        }
+    },
+    "portsAttributes": {
+        "6200": {
+            "label": "VNC",
+            "onAutoForward": "notify"
+        }
+    },
+    "postStartCommand": "bash /workspaces/gofly/.devcontainer/start-docker.sh"
 }
