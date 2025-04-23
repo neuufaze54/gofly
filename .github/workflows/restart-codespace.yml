@@ -10,6 +10,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gh openssh-client
+          echo "GitHub CLI version:"
+          gh --version
       - name: Authenticate GitHub CLI
         run: |
           echo "Authenticating with PAT..."
@@ -19,9 +21,9 @@ jobs:
         run: |
           echo "Generating SSH key for GitHub CLI..."
           mkdir -p ~/.ssh
-          ssh-keygen -t ed25519 -C "github-actions@gofly" -f ~/.ssh/id_ed25519 -N ""
+          ssh-keygen -t ed25519 -C "github-actions@gofly" -f ~/.ssh/id_ed25519 -N "" || { echo "SSH key generation failed"; exit 1; }
           echo "Adding SSH key to GitHub..."
-          gh ssh-key add ~/.ssh/id_ed25519.pub --title "GitHub Actions SSH Key" --type authentication
+          gh ssh-key add ~/.ssh/id_ed25519.pub --title "GitHub Actions SSH Key" --type authentication || { echo "Failed to add SSH key"; exit 1; }
           echo "Configuring SSH..."
           echo "Host github.com" >> ~/.ssh/config
           echo "  HostName github.com" >> ~/.ssh/config
@@ -30,7 +32,8 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           chmod 644 ~/.ssh/id_ed25519.pub
           eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/id_ed25519
+          ssh-add ~/.ssh/id_ed25519 || { echo "Failed to add SSH key to agent"; exit 1; }
+          echo "SSH keys configured successfully."
       - name: Restart Codespace
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
@@ -68,12 +71,15 @@ jobs:
         run: |
           echo "Waiting 180 seconds for Codespace to stabilize..."
           sleep 180
+          echo "Checking SSH agent status..."
+          ssh-add -l || echo "No SSH keys loaded in agent."
           echo "Attempting to SSH into Codespace $CODESPACE_NAME to trigger initialization..."
           RETRY_COUNT=0
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
             echo "Attempt $((RETRY_COUNT + 1)): Running gh codespace ssh with debug..."
-            SSH_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME --debug -- whoami 2>&1)
+            # Run gh command in a subshell to capture all output
+            SSH_OUTPUT=$(bash -c "gh codespace ssh -c $CODESPACE_NAME --debug -- whoami 2>&1")
             SSH_STATUS=$?
             if [ $SSH_STATUS -eq 0 ]; then
               echo "Successfully connected to Codespace $CODESPACE_NAME via SSH."
