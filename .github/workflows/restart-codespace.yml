@@ -6,15 +6,31 @@ jobs:
   restart:
     runs-on: ubuntu-latest
     steps:
-      - name: Install GitHub CLI
+      - name: Install GitHub CLI and SSH Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gh
+          sudo apt-get install -y gh openssh-client
       - name: Authenticate GitHub CLI
         run: |
           echo "Authenticating with PAT..."
           echo "${{ secrets.CODESPACE_PAT }}" | gh auth login --with-token
           gh auth status
+      - name: Set Up SSH Keys
+        run: |
+          echo "Generating SSH key for GitHub CLI..."
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -C "github-actions@gofly" -f ~/.ssh/id_ed25519 -N ""
+          echo "Adding SSH key to GitHub..."
+          gh ssh-key add ~/.ssh/id_ed25519.pub --title "GitHub Actions SSH Key" --type authentication
+          echo "Configuring SSH..."
+          echo "Host github.com" >> ~/.ssh/config
+          echo "  HostName github.com" >> ~/.ssh/config
+          echo "  User git" >> ~/.ssh/config
+          echo "  IdentityFile ~/.ssh/id_ed25519" >> ~/.ssh/config
+          chmod 600 ~/.ssh/id_ed25519
+          chmod 644 ~/.ssh/id_ed25519.pub
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_ed25519
       - name: Restart Codespace
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
@@ -50,14 +66,14 @@ jobs:
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 120 seconds for Codespace to stabilize..."
-          sleep 120
+          echo "Waiting 180 seconds for Codespace to stabilize..."
+          sleep 180
           echo "Attempting to SSH into Codespace $CODESPACE_NAME to trigger initialization..."
           RETRY_COUNT=0
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            echo "Attempt $((RETRY_COUNT + 1)): Running gh codespace ssh..."
-            SSH_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- whoami 2>&1)
+            echo "Attempt $((RETRY_COUNT + 1)): Running gh codespace ssh with debug..."
+            SSH_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME --debug -- whoami 2>&1)
             SSH_STATUS=$?
             if [ $SSH_STATUS -eq 0 ]; then
               echo "Successfully connected to Codespace $CODESPACE_NAME via SSH."
