@@ -52,8 +52,29 @@ jobs:
         run: |
           echo "Waiting 30 seconds for Codespace to stabilize..."
           sleep 30
-          echo "Waking up Codespace $CODESPACE_NAME by fetching its details..."
-          gh api -X GET \
+          echo "Fetching Codespace details to get forwarded port URL..."
+          CODESPACE_DETAILS=$(gh api -X GET \
             -H "Accept: application/vnd.github.v3+json" \
-            /user/codespaces/$CODESPACE_NAME \
-            || echo "Warning: Failed to wake up Codespace, but continuing..."
+            /user/codespaces/$CODESPACE_NAME)
+          PORT_URL=$(echo "$CODESPACE_DETAILS" | jq -r '.remote_port_mappings[] | select(.source_port == 6200) | .public_url' 2>/dev/null || echo "")
+          if [ -z "$PORT_URL" ]; then
+            echo "Warning: Could not find public URL for port 6200. Port forwarding may not be initialized."
+          else
+            echo "Waking up Codespace $CODESPACE_NAME by accessing port 6200 at $PORT_URL..."
+            RETRY_COUNT=0
+            MAX_RETRIES=3
+            until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
+              curl -s -k --connect-timeout 10 "$PORT_URL" >/dev/null 2>&1
+              CURL_STATUS=$?
+              if [ $CURL_STATUS -eq 0 ]; then
+                echo "Successfully accessed port 6200 at $PORT_URL."
+                break
+              fi
+              echo "Failed to access port 6200 (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES). Retrying in 10 seconds..."
+              sleep 10
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+            done
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+              echo "Warning: Failed to access port 6200 after $MAX_RETRIES attempts. VNC may not be accessible immediately."
+            fi
+          fi
