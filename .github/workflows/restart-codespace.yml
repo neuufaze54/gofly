@@ -46,3 +46,14 @@ jobs:
           done
           echo "Failed to restart Codespace $CODESPACE_NAME after $MAX_RETRIES attempts."
           exit 1
+      - name: Wake Up Codespace
+        env:
+          CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
+        run: |
+          echo "Waiting 30 seconds for Codespace to stabilize..."
+          sleep 30
+          echo "Waking up Codespace $CODESPACE_NAME by fetching its details..."
+          gh api -X GET \
+            -H "Accept: application/vnd.github.v3+json" \
+            /user/codespaces/$CODESPACE_NAME \
+            || echo "Warning: Failed to wake up Codespace, but continuing..."
