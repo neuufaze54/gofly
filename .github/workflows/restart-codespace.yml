@@ -12,10 +12,9 @@ jobs:
           sudo apt-get install -y gh
       - name: Authenticate GitHub CLI
         run: |
-          echo "Using default GitHub Actions token for authentication..."
-          gh auth setup-git
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "Authenticating with PAT..."
+          echo "${{ secrets.CODESPACE_PAT }}" | gh auth login --with-token
+          gh auth status
       - name: Restart Codespace
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
@@ -23,7 +22,14 @@ jobs:
           echo "Waiting 60 seconds to ensure stop completes..."
           sleep 60
           echo "Attempting to restart Codespace $CODESPACE_NAME..."
-          gh api -X POST \
+          START_OUTPUT=$(gh api -X POST \
             -H "Accept: application/vnd.github.v3+json" \
-            /user/codespaces/$CODESPACE_NAME/start \
-            || echo "Failed to restart Codespace; it may already be running or inaccessible."
+            /user/codespaces/$CODESPACE_NAME/start 2>&1)
+          START_STATUS=$?
+          if [ $START_STATUS -eq 0 ]; then
+            echo "Codespace $CODESPACE_NAME restart initiated successfully."
+          else
+            echo "Failed to restart Codespace $CODESPACE_NAME."
+            echo "Error details: $START_OUTPUT"
+            exit 1
+          fi
