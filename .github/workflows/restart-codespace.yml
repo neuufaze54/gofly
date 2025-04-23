@@ -50,13 +50,13 @@ jobs:
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 60 seconds for Codespace to stabilize..."
-          sleep 60
+          echo "Waiting 120 seconds for Codespace to stabilize..."
+          sleep 120
           echo "Attempting to SSH into Codespace $CODESPACE_NAME to trigger initialization..."
           RETRY_COUNT=0
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            SSH_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200" 2>&1)
+            SSH_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200 && echo 'Port 6200 is listening'" 2>&1)
             SSH_STATUS=$?
             if [ $SSH_STATUS -eq 0 ]; then
               echo "Successfully connected to Codespace $CODESPACE_NAME via SSH and confirmed port 6200 is listening."
