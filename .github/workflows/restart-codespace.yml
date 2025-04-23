@@ -19,17 +19,30 @@ jobs:
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 60 seconds to ensure stop completes..."
-          sleep 60
+          echo "Waiting 120 seconds to ensure stop completes..."
+          sleep 120
           echo "Attempting to restart Codespace $CODESPACE_NAME..."
-          START_OUTPUT=$(gh api -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            /user/codespaces/$CODESPACE_NAME/start 2>&1)
-          START_STATUS=$?
-          if [ $START_STATUS -eq 0 ]; then
-            echo "Codespace $CODESPACE_NAME restart initiated successfully."
-          else
-            echo "Failed to restart Codespace $CODESPACE_NAME."
+          RETRY_COUNT=0
+          MAX_RETRIES=3
+          until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
+            START_OUTPUT=$(gh api -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              /user/codespaces/$CODESPACE_NAME/start 2>&1)
+            START_STATUS=$?
+            if [ $START_STATUS -eq 0 ]; then
+              echo "Codespace $CODESPACE_NAME restart initiated successfully."
+              exit 0
+            fi
+            echo "Failed to restart Codespace $CODESPACE_NAME (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
             echo "Error details: $START_OUTPUT"
-            exit 1
-          fi
+            if echo "$START_OUTPUT" | grep -q "HTTP 409"; then
+              echo "Conflict detected (HTTP 409). Retrying in 30 seconds..."
+              sleep 30
+            else
+              echo "Non-retryable error. Exiting."
+              exit 1
+            fi
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+          done
+          echo "Failed to restart Codespace $CODESPACE_NAME after $MAX_RETRIES attempts."
+          exit 1
