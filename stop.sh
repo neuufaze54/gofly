@@ -68,12 +68,23 @@ fi
 
 # Step 4: Trigger restart workflow
 echo "Scheduling restart for Codespace $CODESPACE..."
+# Create temporary JSON file for payload
+TEMP_PAYLOAD=$(mktemp)
+cat << EOF > "$TEMP_PAYLOAD"
+{
+  "event_type": "restart-codespace",
+  "client_payload": {
+    "codespace_name": "$CODESPACE"
+  }
+}
+EOF
 DISPATCH_OUTPUT=$(gh api -X POST \
   -H "Accept: application/vnd.github.v3+json" \
   /repos/$REPO/dispatches \
-  -f event_type="restart-codespace" \
-  -f client_payload="{\"codespace_name\":\"$CODESPACE\"}" 2>&1)
-if [ $? -eq 0 ]; then
+  --input "$TEMP_PAYLOAD" 2>&1)
+DISPATCH_STATUS=$?
+rm -f "$TEMP_PAYLOAD"
+if [ $DISPATCH_STATUS -eq 0 ]; then
     echo "Restart workflow dispatched successfully."
 else
     echo "Warning: Failed to dispatch restart workflow."
