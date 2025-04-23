@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to stop the current GitHub Codespace
+# Script to stop the current GitHub Codespace and schedule a restart
 
 # Step 0: Ensure GitHub CLI (gh) is installed
 if ! command -v gh &> /dev/null; then
@@ -64,4 +64,18 @@ else
         echo "Select 'github.com', 'HTTPS', browser authentication, and ensure 'codespace' scope."
     fi
     exit 1
+fi
+
+# Step 4: Trigger restart workflow
+echo "Scheduling restart for Codespace $CODESPACE..."
+DISPATCH_OUTPUT=$(gh api -X POST \
+  -H "Accept: application/vnd.github.v3+json" \
+  /repos/$REPO/dispatches \
+  -f event_type="restart-codespace" \
+  -f client_payload="{\"codespace_name\":\"$CODESPACE\"}" 2>&1)
+if [ $? -eq 0 ]; then
+    echo "Restart workflow dispatched successfully."
+else
+    echo "Warning: Failed to dispatch restart workflow."
+    echo "Error details: $DISPATCH_OUTPUT"
 fi
