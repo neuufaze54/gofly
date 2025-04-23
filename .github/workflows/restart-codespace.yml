@@ -56,14 +56,24 @@ jobs:
           RETRY_COUNT=0
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            SSH_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200 && echo 'Port 6200 is listening'" 2>&1)
+            echo "Attempt $((RETRY_COUNT + 1)): Running gh codespace ssh..."
+            SSH_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- whoami 2>&1)
             SSH_STATUS=$?
             if [ $SSH_STATUS -eq 0 ]; then
-              echo "Successfully connected to Codespace $CODESPACE_NAME via SSH and confirmed port 6200 is listening."
-              break
+              echo "Successfully connected to Codespace $CODESPACE_NAME via SSH."
+              echo "Checking if port 6200 is listening..."
+              NC_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200 && echo 'Port 6200 is listening'" 2>&1)
+              NC_STATUS=$?
+              if [ $NC_STATUS -eq 0 ]; then
+                echo "Confirmed port 6200 is listening in Codespace $CODESPACE_NAME."
+                break
+              else
+                echo "Failed to confirm port 6200 is listening. Error details: $NC_OUTPUT"
+              fi
+            else
+              echo "Failed to SSH into Codespace $CODESPACE_NAME (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
+              echo "Error details: $SSH_OUTPUT"
             fi
-            echo "Failed to SSH into Codespace $CODESPACE_NAME (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
-            echo "Error details: $SSH_OUTPUT"
             echo "Retrying in 30 seconds..."
             sleep 30
             RETRY_COUNT=$((RETRY_COUNT + 1))
