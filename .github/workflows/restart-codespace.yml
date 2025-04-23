@@ -52,41 +52,22 @@ jobs:
         run: |
           echo "Waiting 60 seconds for Codespace to stabilize..."
           sleep 60
-          echo "Fetching Codespace details to get forwarded port URL..."
-          PORT_URL=""
+          echo "Attempting to SSH into Codespace $CODESPACE_NAME to trigger initialization..."
           RETRY_COUNT=0
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            CODESPACE_DETAILS=$(gh api -X GET \
-              -H "Accept: application/vnd.github.v3+json" \
-              /user/codespaces/$CODESPACE_NAME)
-            PORT_URL=$(echo "$CODESPACE_DETAILS" | jq -r '.remote_port_mappings[] | select(.source_port == 6200) | .public_url' 2>/dev/null || echo "")
-            if [ -n "$PORT_URL" ]; then
-              echo "Found public URL for port 6200: $PORT_URL"
+            SSH_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200" 2>&1)
+            SSH_STATUS=$?
+            if [ $SSH_STATUS -eq 0 ]; then
+              echo "Successfully connected to Codespace $CODESPACE_NAME via SSH and confirmed port 6200 is listening."
               break
             fi
-            echo "Could not find public URL for port 6200 (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES). Retrying in 30 seconds..."
+            echo "Failed to SSH into Codespace $CODESPACE_NAME (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
+            echo "Error details: $SSH_OUTPUT"
+            echo "Retrying in 30 seconds..."
             sleep 30
             RETRY_COUNT=$((RETRY_COUNT + 1))
           done
-          if [ -z "$PORT_URL" ]; then
-            echo "Warning: Could not find public URL for port 6200 after $MAX_RETRIES attempts. Port forwarding may not be initialized."
-          else
-            echo "Waking up Codespace $CODESPACE_NAME by accessing port 6200 at $PORT_URL..."
-            RETRY_COUNT=0
-            MAX_RETRIES=3
-            until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-              curl -s -k --connect-timeout 10 "$PORT_URL" >/dev/null 2>&1
-              CURL_STATUS=$?
-              if [ $CURL_STATUS -eq 0 ]; then
-                echo "Successfully accessed port 6200 at $PORT_URL."
-                break
-              fi
-              echo "Failed to access port 6200 (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES). Retrying in 10 seconds..."
-              sleep 10
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-            done
-            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-              echo "Warning: Failed to access port 6200 after $MAX_RETRIES attempts. VNC may not be accessible immediately."
-            fi
+          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+            echo "Warning: Failed to SSH into Codespace $CODESPACE_NAME after $MAX_RETRIES attempts. Port forwarding may not be initialized."
           fi
