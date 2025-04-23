@@ -31,9 +31,7 @@ jobs:
           echo "  IdentityFile ~/.ssh/id_ed25519" >> ~/.ssh/config
           chmod 600 ~/.ssh/id_ed25519
           chmod 644 ~/.ssh/id_ed25519.pub
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/id_ed25519 || { echo "Failed to add SSH key to agent"; exit 1; }
-          echo "SSH keys configured successfully."
+          echo "SSH key setup complete."
       - name: Restart Codespace
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
@@ -71,16 +69,24 @@ jobs:
         run: |
           echo "Waiting 180 seconds for Codespace to stabilize..."
           sleep 180
+          echo "Starting SSH agent..."
+          eval "$(ssh-agent -s)" || { echo "Failed to start SSH agent"; exit 1; }
+          ssh-add ~/.ssh/id_ed25519 || { echo "Failed to add SSH key to agent"; exit 1; }
           echo "Checking SSH agent status..."
           ssh-add -l || echo "No SSH keys loaded in agent."
+          echo "Testing SSH connection..."
+          gh codespace ssh -c $CODESPACE_NAME -- whoami > ssh_test.log 2>&1 || { echo "Test SSH failed"; cat ssh_test.log; }
+          echo "Test SSH output:"
+          cat ssh_test.log
           echo "Attempting to SSH into Codespace $CODESPACE_NAME to trigger initialization..."
           RETRY_COUNT=0
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
             echo "Attempt $((RETRY_COUNT + 1)): Running gh codespace ssh with debug..."
-            # Run gh command in a subshell to capture all output
-            SSH_OUTPUT=$(bash -c "gh codespace ssh -c $CODESPACE_NAME --debug -- whoami 2>&1")
+            # Run gh command and capture output to a file
+            bash -c "gh codespace ssh -c $CODESPACE_NAME --debug -- whoami > ssh_output.log 2>&1"
             SSH_STATUS=$?
+            cat ssh_output.log
             if [ $SSH_STATUS -eq 0 ]; then
               echo "Successfully connected to Codespace $CODESPACE_NAME via SSH."
               echo "Checking if port 6200 is listening..."
@@ -94,7 +100,7 @@ jobs:
               fi
             else
               echo "Failed to SSH into Codespace $CODESPACE_NAME (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
-              echo "Error details: $SSH_OUTPUT"
+              echo "Error details in ssh_output.log"
             fi
             echo "Retrying in 30 seconds..."
             sleep 30
