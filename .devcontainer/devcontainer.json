@@ -10,7 +10,7 @@
     "portsAttributes": {
         "6200": {
             "label": "VNC",
-            "onAutoForward": "notify"
+            "onAutoForward": "open"
         }
     },
     "postCreateCommand": "sudo apt-get update && sudo apt-get install -y netcat-traditional",
