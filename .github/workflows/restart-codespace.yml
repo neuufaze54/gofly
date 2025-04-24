@@ -102,11 +102,32 @@ jobs:
             echo "Warning: Failed to SSH into Codespace $CODESPACE_NAME after $MAX_RETRIES attempts. Port forwarding may not be initialized."
             exit 1
           fi
+          echo "Checking start-docker.sh execution..."
+          LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log" 2>&1)
+          if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
+            echo "start-docker.sh executed successfully."
+          else
+            echo "Error: start-docker.sh did not execute or failed."
+            echo "Log contents: $LOG_CHECK"
+            gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker info" > docker_info.log 2>&1
+            cat docker_info.log
+            exit 1
+          fi
           echo "Checking current port forwarding status..."
           gh codespace ports -c $CODESPACE_NAME > ports.log 2>&1
           cat ports.log
           echo "Ensuring port 6200 visibility..."
           gh codespace ports visibility 6200:public -c $CODESPACE_NAME || { echo "Failed to set port 6200 visibility"; exit 1; }
+          echo "Verifying container status..."
+          CONTAINER_STATUS=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker ps -q -f name=agitated_cannon" 2>&1)
+          if [ -n "$CONTAINER_STATUS" ]; then
+            echo "Container agitated_cannon is running."
+          else
+            echo "Error: Container agitated_cannon is not running."
+            gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log" > start-docker.log 2>&1
+            cat start-docker.log
+            exit 1
+          fi
           echo "Checking if port 6200 is listening..."
           PORT_RETRY_COUNT=0
           PORT_MAX_RETRIES=5
