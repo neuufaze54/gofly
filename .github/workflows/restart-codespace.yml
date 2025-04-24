@@ -69,8 +69,8 @@ jobs:
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 300 seconds for Codespace to stabilize..."
-          sleep 300
+          echo "Waiting 120 seconds for Codespace to stabilize..."
+          sleep 120
           echo "Starting SSH agent..."
           eval "$(ssh-agent -s)" || { echo "Failed to start SSH agent"; exit 1; }
           ssh-add ~/.ssh/id_ed25519 || { echo "Failed to add SSH key to agent"; exit 1; }
@@ -102,8 +102,11 @@ jobs:
             echo "Warning: Failed to SSH into Codespace $CODESPACE_NAME after $MAX_RETRIES attempts. Port forwarding may not be initialized."
             exit 1
           fi
-          echo "Ensuring port 6200 is forwarded..."
-          gh codespace ports forward 6200:6200 -c $CODESPACE_NAME || { echo "Failed to forward port 6200"; exit 1; }
+          echo "Checking current port forwarding status..."
+          gh codespace ports -c $CODESPACE_NAME > ports.log 2>&1
+          cat ports.log
+          echo "Ensuring port 6200 visibility..."
+          gh codespace ports visibility 6200:public -c $CODESPACE_NAME || { echo "Failed to set port 6200 visibility"; exit 1; }
           echo "Checking if port 6200 is listening..."
           PORT_RETRY_COUNT=0
           PORT_MAX_RETRIES=5
