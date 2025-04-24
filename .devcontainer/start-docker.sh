@@ -1,5 +1,4 @@
 #!/bin/bash
-# Script to start Docker container on Codespace startup
 set -e
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "Starting start-docker.sh at $(date)" | tee -a $LOG_FILE
@@ -13,7 +12,6 @@ if ! docker info --format '{{.ServerVersion}}' >> $LOG_FILE 2>&1; then
     exit 1
 fi
 echo "Docker daemon is running" | tee -a $LOG_FILE
-# Remove any stopped container
 if docker ps -a -q -f name=agitated_cannon | grep -q .; then
     echo "Removing existing agitated_cannon container..." | tee -a $LOG_FILE
     docker rm -f agitated_cannon >> $LOG_FILE 2>&1
@@ -22,12 +20,10 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
         exit 1
     fi
 fi
-# Start new container
 echo "Starting new Docker container agitated_cannon..." | tee -a $LOG_FILE
 docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu dorowu/ubuntu-desktop-lxde-vnc >> $LOG_FILE 2>&1
 if [ $? -eq 0 ]; then
     echo "Docker container agitated_cannon started successfully" | tee -a $LOG_FILE
-    # Wait for container to be healthy
     echo "Waiting for container to be healthy..." | tee -a $LOG_FILE
     for i in {1..30}; do
         if docker inspect agitated_cannon | grep -q '"Status": "healthy"'; then

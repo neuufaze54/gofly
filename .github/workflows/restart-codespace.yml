@@ -9,7 +9,7 @@ jobs:
       - name: Install GitHub CLI and Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gh openssh-client netcat-traditional jq
+          sudo apt-get install -y gh openssh-client curl jq
           echo "GitHub CLI version:"
           gh --version
       - name: Authenticate GitHub CLI
