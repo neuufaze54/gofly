@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Script to start Docker container on Codespace startup
+# Updated on 2025-04-24 to fix supervisorctl service names for x:xvfb and x:x11vnc
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -32,7 +33,7 @@ run_docker_command() {
     local delay=5
 
     while [ $attempt -le $max_attempts ]; do
-        if bash -c "$cmd" >/dev/null 2>>"$LOG_FILE"; then
+        if bash -c "$cmd" >>"$LOG_FILE" 2>&1; then
             return 0
         fi
         echo "Docker command failed (attempt $attempt/$max_attempts): $cmd" | tee -a "$LOG_FILE"
@@ -56,13 +57,13 @@ set_vnc_resolution() {
         echo "Warning: Failed to update supervisord configuration. Continuing..." | tee -a "$LOG_FILE"
     fi
     # Restart xvfb and x11vnc services
-    if run_docker_command "docker exec $container bash -c 'supervisorctl restart xvfb'"; then
+    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:xvfb'"; then
         echo "Xvfb service restarted." | tee -a "$LOG_FILE"
     else
         echo "Warning: Failed to restart Xvfb service. Continuing..." | tee -a "$LOG_FILE"
     fi
     sleep 2
-    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x11vnc'"; then
+    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:x11vnc'"; then
         echo "x11vnc service restarted." | tee -a "$LOG_FILE"
     else
         echo "Warning: Failed to restart x11vnc service. Continuing..." | tee -a "$LOG_FILE"
@@ -92,8 +93,14 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
     # Check if the container is running
     if docker ps -q -f name=agitated_cannon | grep -q .; then
         echo "Docker container agitated_cannon is already running." | tee -a "$LOG_FILE"
-        # Update resolution for running container
-        set_vnc_resolution "agitated_cannon"
+        # Verify resolution for existing containers
+        echo "Verifying VNC resolution for existing container agitated_cannon..." | tee -a "$LOG_FILE"
+        RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
+        if [ "$RESOLUTION" = "1366x641" ]; then
+            echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
+        else
+            echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
+        fi
     else
         # Container exists but is stopped; start it to preserve state
         echo "Starting stopped Docker container agitated_cannon..." | tee -a "$LOG_FILE"
@@ -113,7 +120,14 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             set_vnc_resolution "agitated_cannon"
         else
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
-            set_vnc_resolution "agitated_cannon"
+            # Verify resolution for existing containers
+            echo "Verifying VNC resolution for existing container agitated_cannon..." | tee -a "$LOG_FILE"
+            RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
+            if [ "$RESOLUTION" = "1366x641" ]; then
+                echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
+            else
+                echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
+            fi
         fi
     fi
 else
@@ -134,6 +148,7 @@ fi
 sleep 5
 if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "VNC service is accessible on port 6200." | tee -a "$LOG_FILE"
+    echo "VNC GUI should display at fixed 1366x641 resolution. If scaling occurs, append ?resize=off to the VNC URL (e.g., http://<codespace-url>:6200/?resize=off)." | tee -a "$LOG_FILE"
     # Create mohamed.txt in /root/Desktop (VNC GUI desktop)
     echo "Creating mohamed.txt in /root/Desktop..." | tee -a "$LOG_FILE"
     if run_docker_command "docker exec agitated_cannon bash -c 'mkdir -p /root/Desktop && echo \"hello\" > /root/Desktop/mohamed.txt'"; then
