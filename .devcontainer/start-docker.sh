@@ -45,6 +45,32 @@ run_docker_command() {
     return 1
 }
 
+# Function to set and verify VNC resolution
+set_vnc_resolution() {
+    local container="$1"
+    echo "Setting VNC resolution to 1366x641 for container $container..." | tee -a "$LOG_FILE"
+    # Update VNC config file
+    if run_docker_command "docker exec $container bash -c 'mkdir -p /root/.vnc && echo \"geometry=1366x641\" > /root/.vnc/config'"; then
+        echo "VNC configuration updated with geometry=1366x641." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: Failed to update VNC configuration file. Continuing..." | tee -a "$LOG_FILE"
+    fi
+    # Restart VNC server to apply resolution
+    if run_docker_command "docker exec $container bash -c 'pkill Xvnc && vncserver :1 -geometry 1366x641'"; then
+        echo "VNC server restarted with resolution 1366x641." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: Failed to restart VNC server. Resolution may not be applied." | tee -a "$LOG_FILE"
+    fi
+    # Verify resolution
+    sleep 2
+    RESOLUTION=$(docker exec $container bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
+    if [ "$RESOLUTION" = "1366x641" ]; then
+        echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
+    fi
+}
+
 # Wait for Docker daemon to be available
 if ! check_docker_daemon; then
     echo "Exiting due to persistent Docker daemon failure." | tee -a "$LOG_FILE"
@@ -57,6 +83,8 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
     # Check if the container is running
     if docker ps -q -f name=agitated_cannon | grep -q .; then
         echo "Docker container agitated_cannon is already running." | tee -a "$LOG_FILE"
+        # Update resolution for running container
+        set_vnc_resolution "agitated_cannon"
     else
         # Container exists but is stopped; start it to preserve state
         echo "Starting stopped Docker container agitated_cannon..." | tee -a "$LOG_FILE"
@@ -67,25 +95,30 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             run_docker_command "docker rm agitated_cannon"
             # Proceed to create a new container
             echo "Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
-            if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu dorowu/ubuntu-desktop-lxde-vnc"; then
+            if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
                 echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
                 docker logs agitated_cannon >> "$LOG_FILE" 2>&1
                 exit 1
             fi
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
+            set_vnc_resolution "agitated_cannon"
         else
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
+            set_vnc_resolution "agitated_cannon"
         fi
     fi
 else
     # Container doesn't exist; create and run it
     echo "No existing container found. Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
-    if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu dorowu/ubuntu-desktop-lxde-vnc"; then
+    echo "Listing all containers for debugging:" >> "$LOG_FILE"
+    docker ps -a >> "$LOG_FILE" 2>&1
+    if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
         echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
         docker logs agitated_cannon >> "$LOG_FILE" 2>&1
         exit 1
     fi
     echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
+    set_vnc_resolution "agitated_cannon"
 fi
 
 # Wait for the container to fully start and verify VNC service
