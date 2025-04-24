@@ -61,8 +61,8 @@ jobs:
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 180 seconds for Codespace to stabilize..."
-          sleep 180
+          echo "Waiting 300 seconds for Codespace to stabilize..."
+          sleep 300
           eval "$(ssh-agent -s)"
           ssh-add ~/.ssh/id_ed25519
           RETRY_COUNT=0
@@ -86,21 +86,31 @@ jobs:
             exit 1
           fi
           echo "Checking Docker daemon..."
-          DOCKER_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker info --format '{{.ServerVersion}}' 2>&1")
-          DOCKER_STATUS=$?
-          if [ $DOCKER_STATUS -eq 0 ] && ! echo "$DOCKER_CHECK" | grep -q "Usage: docker"; then
-            echo "Docker daemon is running. Version: $DOCKER_CHECK"
+          DOCKER_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker ps >/dev/null 2>&1 && echo 'Docker daemon running' || echo 'Docker daemon not running'")
+          if echo "$DOCKER_CHECK" | grep -q "Docker daemon running"; then
+            echo "Docker daemon is running."
           else
             echo "Error: Docker daemon is not running or inaccessible."
-            echo "Docker info output: $DOCKER_CHECK"
+            echo "Docker check output: $DOCKER_CHECK"
             exit 1
           fi
           echo "Checking start-docker.sh execution..."
-          LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log 2>&1")
-          if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
-            echo "start-docker.sh executed successfully."
-          else
-            echo "Warning: start-docker.sh did not execute or failed."
+          RETRY_COUNT=0
+          MAX_RETRIES=5
+          until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
+            LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log 2>&1")
+            if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
+              echo "start-docker.sh executed successfully."
+              break
+            fi
+            echo "Log check attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: start-docker.sh not yet completed."
+            echo "Log contents: $LOG_CHECK"
+            echo "Retrying in 30 seconds..."
+            sleep 30
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+          done
+          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+            echo "Warning: start-docker.sh did not execute or failed after $MAX_RETRIES attempts."
             echo "Log contents: $LOG_CHECK"
             echo "Attempting to run start-docker.sh manually..."
             RUN_SCRIPT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "bash /workspaces/gofly/.devcontainer/start-docker.sh 2>&1")
