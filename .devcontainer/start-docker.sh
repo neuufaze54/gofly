@@ -48,7 +48,7 @@ else
     exit 1
 fi
 echo "Verifying port 6200..." | tee -a $LOG_FILE
-if nc -z localhost 6200; then
+if curl -s -I http://localhost:6200 | grep -q "HTTP/1.1 200 OK"; then
     echo "Port 6200 is listening" | tee -a $LOG_FILE
 else
     echo "Error: Port 6200 is not listening" | tee -a $LOG_FILE

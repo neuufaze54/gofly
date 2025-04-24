@@ -10,5 +10,6 @@
     "vscode": {
       "extensions": []
     }
-  }
+  },
+  "onCreateCommand": "sudo apt-get update && sudo apt-get install -y netcat-traditional jq && echo \"$GITHUB_TOKEN\" | gh auth login --with-token"
 }
