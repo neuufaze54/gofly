@@ -1,92 +1,59 @@
 #!/bin/bash
-
-# Script to stop the current GitHub Codespace and schedule a restart
-
-# Step 0: Ensure GitHub CLI (gh) is installed
-if ! command -v gh &> /dev/null; then
+set -e
+# Check if gh is installed
+if ! command -v gh >/dev/null 2>&1; then
     echo "GitHub CLI (gh) not found. Installing..."
     sudo apt-get update
     sudo apt-get install -y gh
     if [ $? -ne 0 ]; then
-        echo "Error: Failed to install GitHub CLI."
+        echo "Failed to install GitHub CLI."
         exit 1
     fi
     echo "GitHub CLI installed successfully."
 fi
-
-# Step 1: Detect repository and branch
-if ! git rev-parse --is-inside-work-tree &> /dev/null; then
-    echo "Error: Not inside a git repository."
-    exit 1
-fi
-REPO=$(git config --get remote.origin.url | sed -E 's|.*[:/]([^/]+)/([^/]+)(\.git)?$|\1/\2|')
+# Get repository details
+REPO=$(git config --get remote.origin.url | sed 's/.*github.com\///' | sed 's/.git$//')
 if [ -z "$REPO" ]; then
-    echo "Error: Could not determine repository name."
+    echo "Failed to detect repository."
     exit 1
 fi
 echo "Detected repository: $REPO"
-
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [ -z "$CURRENT_BRANCH" ]; then
-    echo "Error: Could not determine current branch."
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "Current branch: $BRANCH"
+# Get Codespace name
+CODESPACE_NAME=$(gh codespace list --repo "$REPO" --json name,state | jq -r '.[] | select(.state == "Running") | .name')
+if [ -z "$CODESPACE_NAME" ]; then
+    echo "No running Codespace found for repository $REPO."
     exit 1
 fi
-echo "Current branch: $CURRENT_BRANCH"
-
-# Step 2: Get Codespace name
-if [ -n "$CODESPACE_NAME" ]; then
-    CODESPACE="$CODESPACE_NAME"
-    echo "Found Codespace: $CODESPACE"
-else
-    echo "CODESPACE_NAME not set. Falling back to gh codespace list..."
-    CODESPACE=$(gh codespace list --repo "$REPO" | grep "$CURRENT_BRANCH" | awk '{print $1}' | head -n 1)
-    if [ -z "$CODESPACE" ]; then
-        echo "Error: No Codespace found for repository $REPO and branch $CURRENT_BRANCH."
-        echo "Codespace list output:"
-        gh codespace list --repo "$REPO"
-        exit 1
-    fi
-    echo "Found Codespace: $CODESPACE"
+echo "Found Codespace: $CODESPACE_NAME"
+# Stop any running container
+if docker ps -q -f name=agitated_cannon | grep -q .; then
+    echo "Stopping container agitated_cannon..."
+    docker stop agitated_cannon
+    docker rm agitated_cannon
 fi
-
-# Step 3: Stop the Codespace
-echo "Stopping Codespace $CODESPACE..."
-STOP_OUTPUT=$(gh codespace stop -c "$CODESPACE" 2>&1)
-if [ $? -eq 0 ]; then
-    echo "Codespace $CODESPACE stopped successfully."
-else
-    echo "Error: Failed to stop Codespace $CODESPACE."
-    echo "Error details: $STOP_OUTPUT"
-    if echo "$STOP_OUTPUT" | grep -q "HTTP 403"; then
-        echo "Possible permission issue. Try re-authenticating:"
-        echo "  gh auth logout"
-        echo "  gh auth login"
-        echo "Select 'github.com', 'HTTPS', browser authentication, and ensure 'codespace' scope."
-    fi
+# Reset start-docker.log to force restart
+echo "Resetting start-docker.log..."
+rm -f /workspaces/gofly/start-docker.log
+# Stop Codespace
+echo "Stopping Codespace $CODESPACE_NAME..."
+gh codespace stop -c "$CODESPACE_NAME"
+if [ $? -ne 0 ]; then
+    echo "Failed to stop Codespace $CODESPACE_NAME."
     exit 1
 fi
-
-# Step 4: Trigger restart workflow
-echo "Scheduling restart for Codespace $CODESPACE..."
-# Create temporary JSON file for payload
-TEMP_PAYLOAD=$(mktemp)
-cat << EOF > "$TEMP_PAYLOAD"
-{
-  "event_type": "restart-codespace",
-  "client_payload": {
-    "codespace_name": "$CODESPACE"
-  }
-}
-EOF
-DISPATCH_OUTPUT=$(gh api -X POST \
-  -H "Accept: application/vnd.github.v3+json" \
-  /repos/$REPO/dispatches \
-  --input "$TEMP_PAYLOAD" 2>&1)
-DISPATCH_STATUS=$?
-rm -f "$TEMP_PAYLOAD"
-if [ $DISPATCH_STATUS -eq 0 ]; then
-    echo "Restart workflow dispatched successfully."
-else
-    echo "Warning: Failed to dispatch restart workflow."
-    echo "Error details: $DISPATCH_OUTPUT"
+echo "Codespace $CODESPACE_NAME stopped successfully."
+# Schedule restart via GitHub Actions
+echo "Scheduling restart for Codespace $CODESPACE_NAME..."
+gh api -X POST \
+    -H "Accept: application/vnd.github.v3+json" \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    "/repos/$REPO/dispatches" \
+    -f event_type=restart-codespace \
+    -f "client_payload[codespace_name]=$CODESPACE_NAME"
+if [ $? -ne 0 ]; then
+    echo "Failed to dispatch restart workflow."
+    exit 1
 fi
+echo "Restart workflow dispatched successfully."

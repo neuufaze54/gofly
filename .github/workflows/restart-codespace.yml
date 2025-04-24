@@ -80,7 +80,7 @@ jobs:
           gh codespace ssh -c $CODESPACE_NAME -- whoami > ssh_test.log 2>&1 || { echo "Test SSH failed"; cat ssh_test.log; exit 1; }
           echo "Test SSH output:"
           cat ssh_test.log
-          echo "Attempting to SSH into Codespace $CODESPACE_NAME to trigger initialization..."
+          echo "Attempting to SSH into Codespace $CODESSPACE_NAME to trigger initialization..."
           RETRY_COUNT=0
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
@@ -103,8 +103,9 @@ jobs:
             exit 1
           fi
           echo "Checking Docker daemon..."
-          DOCKER_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker info --format '{{.ServerVersion}}'" 2>&1)
-          if [ $? -eq 0 ]; then
+          DOCKER_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker info --format '{{.ServerVersion}}' 2>&1")
+          DOCKER_STATUS=$?
+          if [ $DOCKER_STATUS -eq 0 ] && ! echo "$DOCKER_CHECK" | grep -q "Usage: docker"; then
             echo "Docker daemon is running. Version: $DOCKER_CHECK"
           else
             echo "Error: Docker daemon is not running or inaccessible."
@@ -112,14 +113,14 @@ jobs:
             exit 1
           fi
           echo "Checking start-docker.sh execution..."
-          LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log" 2>&1)
+          LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log 2>&1")
           if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
             echo "start-docker.sh executed successfully."
           else
             echo "Warning: start-docker.sh did not execute or failed."
             echo "Log contents: $LOG_CHECK"
             echo "Attempting to run start-docker.sh manually..."
-            RUN_SCRIPT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "bash /workspaces/gofly/.devcontainer/start-docker.sh" 2>&1)
+            RUN_SCRIPT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "bash /workspaces/gofly/.devcontainer/start-docker.sh 2>&1")
             RUN_STATUS=$?
             echo "Manual execution output: $RUN_SCRIPT"
             if [ $RUN_STATUS -ne 0 ]; then
@@ -127,7 +128,7 @@ jobs:
               exit 1
             fi
             echo "Checking start-docker.sh log after manual execution..."
-            LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log" 2>&1)
+            LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log 2>&1")
             if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
               echo "start-docker.sh executed successfully after manual run."
             else
@@ -142,7 +143,7 @@ jobs:
           echo "Ensuring port 6200 visibility..."
           gh codespace ports visibility 6200:public -c $CODESPACE_NAME || { echo "Failed to set port 6200 visibility"; exit 1; }
           echo "Verifying container status..."
-          CONTAINER_STATUS=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker ps -q -f name=agitated_cannon" 2>&1)
+          CONTAINER_STATUS=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker ps -q -f name=agitated_cannon 2>&1")
           if [ -n "$CONTAINER_STATUS" ]; then
             echo "Container agitated_cannon is running."
           else
@@ -156,7 +157,7 @@ jobs:
           PORT_MAX_RETRIES=5
           until [ $PORT_RETRY_COUNT -ge $PORT_MAX_RETRIES ]; do
             echo "Port check attempt $((PORT_RETRY_COUNT + 1))/$MAX_RETRIES..."
-            NC_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200 && echo 'Port 6200 is listening'" 2>&1)
+            NC_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200 && echo 'Port 6200 is listening' 2>&1")
             NC_STATUS=$?
             echo "Netcat output: $NC_OUTPUT"
             if [ $NC_STATUS -eq 0 ]; then
@@ -164,7 +165,7 @@ jobs:
               break
             else
               echo "Netcat failed to confirm port 6200 is listening. Trying alternative method..."
-              TCP_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/6200 && echo Port 6200 is listening'" 2>&1)
+              TCP_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/6200 && echo Port 6200 is listening' 2>&1")
               TCP_STATUS=$?
               echo "TCP output: $TCP_OUTPUT"
               if [ $TCP_STATUS -eq 0 ]; then

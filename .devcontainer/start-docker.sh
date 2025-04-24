@@ -3,9 +3,13 @@
 set -e
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "Starting start-docker.sh at $(date)" | tee -a $LOG_FILE
+echo "Running as user: $(whoami)" | tee -a $LOG_FILE
+echo "Docker environment:" | tee -a $LOG_FILE
+env | grep DOCKER >> $LOG_FILE 2>&1
 echo "Checking Docker daemon..." | tee -a $LOG_FILE
-if ! docker info >/dev/null 2>&1; then
+if ! docker info --format '{{.ServerVersion}}' >> $LOG_FILE 2>&1; then
     echo "Error: Docker daemon is not running" | tee -a $LOG_FILE
+    docker info >> $LOG_FILE 2>&1
     exit 1
 fi
 echo "Docker daemon is running" | tee -a $LOG_FILE
