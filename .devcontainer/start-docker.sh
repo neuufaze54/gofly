@@ -55,11 +55,18 @@ set_vnc_resolution() {
     else
         echo "Warning: Failed to update VNC configuration file. Continuing..." | tee -a "$LOG_FILE"
     fi
-    # Restart VNC server to apply resolution
-    if run_docker_command "docker exec $container bash -c 'pkill Xvnc && vncserver :1 -geometry 1366x641'"; then
-        echo "VNC server restarted with resolution 1366x641." | tee -a "$LOG_FILE"
+    # Stop existing VNC server
+    if run_docker_command "docker exec $container bash -c 'vncserver -kill :1'"; then
+        echo "Existing VNC server stopped." | tee -a "$LOG_FILE"
     else
-        echo "Warning: Failed to restart VNC server. Resolution may not be applied." | tee -a "$LOG_FILE"
+        echo "Warning: No VNC server was running or failed to stop. Continuing..." | tee -a "$LOG_FILE"
+    fi
+    # Start VNC server with desired resolution
+    sleep 2
+    if run_docker_command "docker exec $container bash -c 'vncserver :1 -geometry 1366x641'"; then
+        echo "VNC server started with resolution 1366x641." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: Failed to start VNC server with resolution 1366x641." | tee -a "$LOG_FILE"
     fi
     # Verify resolution
     sleep 2
@@ -69,6 +76,9 @@ set_vnc_resolution() {
     else
         echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
     fi
+    # Log container startup for debugging
+    echo "Container startup logs:" >> "$LOG_FILE"
+    docker logs $container >> "$LOG_FILE" 2>&1
 }
 
 # Wait for Docker daemon to be available
