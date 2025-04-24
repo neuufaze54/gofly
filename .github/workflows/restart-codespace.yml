@@ -6,10 +6,10 @@ jobs:
   restart:
     runs-on: ubuntu-latest
     steps:
-      - name: Install GitHub CLI and Tools
+      - name: Install GitHub CLI
         run: |
           sudo apt-get update
-          sudo apt-get install -y gh curl jq
+          sudo apt-get install -y gh jq
           echo "GitHub CLI version:"
           gh --version
       - name: Authenticate GitHub CLI
@@ -46,11 +46,11 @@ jobs:
           done
           echo "Failed to restart Codespace $CODESPACE_NAME after $MAX_RETRIES attempts."
           exit 1
-      - name: Verify Codespace and VNC Service
+      - name: Verify Codespace State
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 180 seconds for Codespace to stabilize and start-docker.sh to complete..."
+          echo "Waiting 180 seconds for Codespace to stabilize..."
           sleep 180
           echo "Fetching Codespace details..."
           CODESPACE_DETAILS=$(gh api /user/codespaces/$CODESPACE_NAME --jq '{state: .state, web_url: .web_url}')
@@ -60,34 +60,4 @@ jobs:
             echo "Error: Codespace $CODESPACE_NAME is not in Available state."
             exit 1
           fi
-          echo "Ensuring port 6200 visibility..."
-          gh codespace ports visibility 6200:public -c $CODESPACE_NAME
-          echo "Fetching public URL for port 6200..."
-          PORT_INFO=$(gh codespace ports -c $CODESPACE_NAME --json ports | jq -r '.ports[] | select(.sourcePort == 6200) | .publicURL')
-          if [ -z "$PORT_INFO" ]; then
-            echo "Error: Could not retrieve public URL for port 6200."
-            exit 1
-          fi
-          echo "Public URL for port 6200: $PORT_INFO"
-          echo "Checking VNC service accessibility..."
-          RETRY_COUNT=0
-          MAX_RETRIES=5
-          until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Checking VNC service..."
-            CURL_OUTPUT=$(curl -s -I "$PORT_INFO" 2>&1)
-            CURL_STATUS=$?
-            if [ $CURL_STATUS -eq 0 ] && echo "$CURL_OUTPUT" | grep -q "HTTP/1.1 200 OK"; then
-              echo "VNC service is accessible at $PORT_INFO."
-              break
-            fi
-            echo "VNC service not yet accessible (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
-            echo "Curl output: $CURL_OUTPUT"
-            echo "Retrying in 30 seconds..."
-            sleep 30
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-          done
-          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-            echo "Error: VNC service is not accessible after $MAX_RETRIES attempts."
-            echo "Final curl output: $CURL_OUTPUT"
-            exit 1
-          fi
+          echo "Codespace $CODESPACE_NAME is ready for connection."
