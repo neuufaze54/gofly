@@ -46,6 +46,15 @@ if [ $? -eq 0 ]; then
     sleep 5
     if nc -zv 127.0.0.1 6200 2>&1 | grep -q "open"; then
         echo "VNC service is accessible on port 6200." | tee -a "$LOG_FILE"
+        # Create mohamed.txt on the container's desktop
+        echo "Creating mohamed.txt on the container's desktop..." | tee -a "$LOG_FILE"
+        docker exec agitated_cannon bash -c "echo 'hello' > /home/ubuntu/Desktop/mohamed.txt" >> "$LOG_FILE" 2>&1
+        if [ $? -eq 0 ]; then
+            echo "mohamed.txt created successfully on the desktop." | tee -a "$LOG_FILE"
+        else
+            echo "Error: Failed to create mohamed.txt on the desktop." | tee -a "$LOG_FILE"
+            exit 1
+        fi
         echo "start-docker.sh completed successfully" >> "$LOG_FILE"
     else
         echo "Error: VNC service is not accessible on port 6200 after starting container." | tee -a "$LOG_FILE"
