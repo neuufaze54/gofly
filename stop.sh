@@ -21,7 +21,7 @@ echo "Detected repository: $REPO"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 echo "Current branch: $BRANCH"
 # Get Codespace name
-CODESPACE_NAME=$(gh codespace list --repo "$REPO" --json name,state | jq -r '.[] | select(.state == "Running") | .name')
+CODESPACE_NAME=$(gh codespace list --json name,state,repository | jq -r '.[] | select(.state == "Running" and .repository == "kouboujou22/gofly") | .name')
 if [ -z "$CODESPACE_NAME" ]; then
     echo "No running Codespace found for repository $REPO."
     exit 1

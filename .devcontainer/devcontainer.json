@@ -1,18 +1,14 @@
 {
-    "name": "GoFly Codespace",
-    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-    "features": {
-        "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-        "ghcr.io/devcontainers/features/sshd:1": {
-            "version": "latest"
-        }
-    },
-    "portsAttributes": {
-        "6200": {
-            "label": "VNC",
-            "onAutoForward": "open"
-        }
-    },
-    "postCreateCommand": "sudo apt-get update && sudo apt-get install -y netcat-traditional && bash /workspaces/gofly/.devcontainer/init-script.sh",
-    "postStartCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh"
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh",
+  "postStartCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  }
 }
