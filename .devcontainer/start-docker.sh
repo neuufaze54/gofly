@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to start Docker container on Codespace startup
-# Updated on 2025-04-24 to add delay before supervisorctl restarts for x:xvfb and x:x11vnc
+# Updated on 2025-04-25 to skip supervisorctl restarts for new containers and reduce supervisord CPU usage
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -49,6 +49,7 @@ run_docker_command() {
 # Function to set and verify VNC resolution
 set_vnc_resolution() {
     local container="$1"
+    local is_new_container="$2"  # "true" for new containers, "false" for existing
     echo "Setting VNC resolution to 1366x641 for container $container..." | tee -a "$LOG_FILE"
     # Update supervisord configuration for xvfb
     if run_docker_command "docker exec $container bash -c 'sed -i \"s/-screen 0 [0-9x]*24/-screen 0 1366x641x24/\" /etc/supervisor/conf.d/supervisord.conf || echo \"command=Xvfb :1 -screen 0 1366x641x24\" >> /etc/supervisor/conf.d/supervisord.conf'"; then
@@ -56,20 +57,26 @@ set_vnc_resolution() {
     else
         echo "Warning: Failed to update supervisord configuration. Continuing..." | tee -a "$LOG_FILE"
     fi
-    # Wait for supervisord to be fully initialized
-    echo "Waiting 5 seconds for supervisord initialization..." | tee -a "$LOG_FILE"
-    sleep 8
-    # Restart xvfb and x11vnc services
-    if docker exec $container bash -c 'supervisorctl restart x:xvfb' >>"$LOG_FILE" 2>&1; then
-        echo "Xvfb service restarted." | tee -a "$LOG_FILE"
+    # Log supervisord configuration for debugging
+    echo "Supervisord configuration after update:" >> "$LOG_FILE"
+    docker exec $container bash -c "cat /etc/supervisor/conf.d/supervisord.conf" >> "$LOG_FILE" 2>&1
+    # Restart services only for existing containers
+    if [ "$is_new_container" = "false" ]; then
+        echo "Waiting 10 seconds for supervisord initialization..." | tee -a "$LOG_FILE"
+        sleep 10
+        if docker exec $container bash -c 'supervisorctl restart x:xvfb' >>"$LOG_FILE" 2>&1; then
+            echo "Xvfb service restarted." | tee -a "$LOG_FILE"
+        else
+            echo "Warning: Failed to restart Xvfb service. Continuing..." | tee -a "$LOG_FILE"
+        fi
+        sleep 2
+        if docker exec $container bash -c 'supervisorctl restart x:x11vnc' >>"$LOG_FILE" 2>&1; then
+            echo "x11vnc service restarted." | tee -a "$LOG_FILE"
+        else
+            echo "Warning: Failed to restart x11vnc service. Continuing..." | tee -a "$LOG_FILE"
+        fi
     else
-        echo "Warning: Failed to restart Xvfb service. Continuing..." | tee -a "$LOG_FILE"
-    fi
-    sleep 2
-    if docker exec $container bash -c 'supervisorctl restart x:x11vnc' >>"$LOG_FILE" 2>&1; then
-        echo "x11vnc service restarted." | tee -a "$LOG_FILE"
-    else
-        echo "Warning: Failed to restart x11vnc service. Continuing..." | tee -a "$LOG_FILE"
+        echo "Skipping service restarts for new container, relying on supervisord startup." | tee -a "$LOG_FILE"
     fi
     # Verify resolution
     sleep 2
@@ -82,6 +89,12 @@ set_vnc_resolution() {
     # Log container startup for debugging
     echo "Container startup logs:" >> "$LOG_FILE"
     docker logs $container >> "$LOG_FILE" 2>&1
+    # Log supervisord status
+    echo "Supervisord status:" >> "$LOG_FILE"
+    docker exec $container bash -c "supervisorctl status" >> "$LOG_FILE" 2>&1
+    # Log CPU usage inside container
+    echo "CPU usage inside container:" >> "$LOG_FILE"
+    docker exec $container bash -c "top -bn1 | head -n 10" >> "$LOG_FILE" 2>&1
 }
 
 # Wait for Docker daemon to be available
@@ -103,6 +116,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
         else
             echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
+            set_vnc_resolution "agitated_cannon" "false"
         fi
     else
         # Container exists but is stopped; start it to preserve state
@@ -120,7 +134,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
                 exit 1
             fi
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
-            set_vnc_resolution "agitated_cannon"
+            set_vnc_resolution "agitated_cannon" "true"
         else
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
             # Verify resolution for existing containers
@@ -130,6 +144,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
                 echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
             else
                 echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
+                set_vnc_resolution "agitated_cannon" "false"
             fi
         fi
     fi
@@ -144,7 +159,7 @@ else
         exit 1
     fi
     echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
-    set_vnc_resolution "agitated_cannon"
+    set_vnc_resolution "agitated_cannon" "true"
 fi
 
 # Wait for the container to fully start and verify VNC service
