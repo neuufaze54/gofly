@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # Script to start Docker container on Codespace startup
-# Updated on 2025-04-24 to fix supervisorctl service names and noVNC scaling
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -33,7 +32,7 @@ run_docker_command() {
     local delay=5
 
     while [ $attempt -le $max_attempts ]; do
-        if bash -c "$cmd" >>"$LOG_FILE" 2>&1; then
+        if bash -c "$cmd" >/dev/null 2>>"$LOG_FILE"; then
             return 0
         fi
         echo "Docker command failed (attempt $attempt/$max_attempts): $cmd" | tee -a "$LOG_FILE"
@@ -46,7 +45,7 @@ run_docker_command() {
     return 1
 }
 
-# Function to set and verify VNC resolution (only for new containers)
+# Function to set and verify VNC resolution
 set_vnc_resolution() {
     local container="$1"
     echo "Setting VNC resolution to 1366x641 for container $container..." | tee -a "$LOG_FILE"
@@ -57,39 +56,28 @@ set_vnc_resolution() {
         echo "Warning: Failed to update supervisord configuration. Continuing..." | tee -a "$LOG_FILE"
     fi
     # Restart xvfb and x11vnc services
-    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:xvfb'"; then
+    if run_docker_command "docker exec $container bash -c 'supervisorctl restart xvfb'"; then
         echo "Xvfb service restarted." | tee -a "$LOG_FILE"
     else
-        echo "Warning: Failed to restart Xvfb service. Attempting fallback restart..." | tee -a "$LOG_FILE"
-        run_docker_command "docker exec $container bash -c 'killall Xvfb; sleep 2; supervisorctl start x:xvfb'"
+        echo "Warning: Failed to restart Xvfb service. Continuing..." | tee -a "$LOG_FILE"
     fi
     sleep 2
-    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:x11vnc'"; then
+    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x11vnc'"; then
         echo "x11vnc service restarted." | tee -a "$LOG_FILE"
     else
-        echo "Warning: Failed to restart x11vnc service. Attempting fallback restart..." | tee -a "$LOG_FILE"
-        run_docker_command "docker exec $container bash -c 'killall x11vnc; sleep 2; supervisorctl start x:x11vnc'"
-    fi
-    # Disable noVNC scaling
-    if run_docker_command "docker exec $container bash -c 'sed -i \"s/resizeSession: true/resizeSession: false/\" /usr/share/novnc/app/ui.js'"; then
-        echo "Disabled noVNC scaling (resizeSession set to false)." | tee -a "$LOG_FILE"
-    else
-        echo "Warning: Failed to disable noVNC scaling. Use ?resize=off in VNC URL." | tee -a "$LOG_FILE"
+        echo "Warning: Failed to restart x11vnc service. Continuing..." | tee -a "$LOG_FILE"
     fi
     # Verify resolution
-    sleep 3
+    sleep 2
     RESOLUTION=$(docker exec $container bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
     if [ "$RESOLUTION" = "1366x641" ]; then
         echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
     else
         echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
     fi
-    # Log supervisord configuration for debugging
-    echo "Supervisord configuration:" >> "$LOG_FILE"
-    docker exec $container bash -c "cat /etc/supervisor/conf.d/supervisord.conf" >> "$LOG_FILE" 2>&1
-    # Log noVNC configuration for debugging
-    echo "noVNC configuration (resizeSession):" >> "$LOG_FILE"
-    docker exec $container bash -c "grep resizeSession /usr/share/novnc/app/ui.js" >> "$LOG_FILE" 2>&1
+    # Log container startup for debugging
+    echo "Container startup logs:" >> "$LOG_FILE"
+    docker logs $container >> "$LOG_FILE" 2>&1
 }
 
 # Wait for Docker daemon to be available
@@ -104,6 +92,8 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
     # Check if the container is running
     if docker ps -q -f name=agitated_cannon | grep -q .; then
         echo "Docker container agitated_cannon is already running." | tee -a "$LOG_FILE"
+        # Update resolution for running container
+        set_vnc_resolution "agitated_cannon"
     else
         # Container exists but is stopped; start it to preserve state
         echo "Starting stopped Docker container agitated_cannon..." | tee -a "$LOG_FILE"
@@ -114,7 +104,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             run_docker_command "docker rm agitated_cannon"
             # Proceed to create a new container
             echo "Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
-            if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
+            if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
                 echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
                 docker logs agitated_cannon >> "$LOG_FILE" 2>&1
                 exit 1
@@ -123,22 +113,15 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             set_vnc_resolution "agitated_cannon"
         else
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
+            set_vnc_resolution "agitated_cannon"
         fi
-    fi
-    # Verify resolution for existing containers
-    echo "Verifying VNC resolution for existing container agitated_cannon..." | tee -a "$LOG_FILE"
-    RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
-    if [ "$RESOLUTION" = "1366x641" ]; then
-        echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
-    else
-        echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
     fi
 else
     # Container doesn't exist; create and run it
     echo "No existing container found. Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
     echo "Listing all containers for debugging:" >> "$LOG_FILE"
     docker ps -a >> "$LOG_FILE" 2>&1
-    if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
+    if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
         echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
         docker logs agitated_cannon >> "$LOG_FILE" 2>&1
         exit 1
@@ -151,7 +134,6 @@ fi
 sleep 5
 if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "VNC service is accessible on port 6200." | tee -a "$LOG_FILE"
-    echo "VNC GUI should display at fixed 1366x641 resolution. If scaling occurs, append ?resize=off to the VNC URL (e.g., http://<codespace-url>:6200/?resize=off)." | tee -a "$LOG_FILE"
     # Create mohamed.txt in /root/Desktop (VNC GUI desktop)
     echo "Creating mohamed.txt in /root/Desktop..." | tee -a "$LOG_FILE"
     if run_docker_command "docker exec agitated_cannon bash -c 'mkdir -p /root/Desktop && echo \"hello\" > /root/Desktop/mohamed.txt'"; then
