@@ -9,9 +9,11 @@ jobs:
       - name: Install GitHub CLI and SSH Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gh openssh-client
+          sudo apt-get install -y gh openssh-client netcat
           echo "GitHub CLI version:"
           gh --version
+          echo "Netcat version:"
+          nc -h 2>&1 | head -n 1
       - name: Authenticate GitHub CLI
         run: |
           echo "Authenticating with PAT..."
@@ -83,7 +85,6 @@ jobs:
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
             echo "Attempt $((RETRY_COUNT + 1)): Running gh codespace ssh with debug..."
-            # Run gh command and capture output to a file
             bash -c "gh codespace ssh -c $CODESPACE_NAME --debug -- whoami > ssh_output.log 2>&1"
             SSH_STATUS=$?
             cat ssh_output.log
