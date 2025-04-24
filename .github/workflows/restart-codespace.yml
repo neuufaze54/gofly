@@ -9,24 +9,13 @@ jobs:
       - name: Install GitHub CLI and Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gh openssh-client curl jq
+          sudo apt-get install -y gh curl jq
           echo "GitHub CLI version:"
           gh --version
       - name: Authenticate GitHub CLI
         run: |
           echo "${{ secrets.CODESPACE_PAT }}" | gh auth login --with-token
           gh auth status
-      - name: Set Up SSH Keys
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keygen -t ed25519 -C "github-actions@gofly" -f ~/.ssh/id_ed25519 -N ""
-          gh ssh-key add ~/.ssh/id_ed25519.pub --title "GitHub Actions SSH Key" --type authentication
-          echo "Host github.com" >> ~/.ssh/config
-          echo "  HostName github.com" >> ~/.ssh/config
-          echo "  User git" >> ~/.ssh/config
-          echo "  IdentityFile ~/.ssh/id_ed25519" >> ~/.ssh/config
-          chmod 600 ~/.ssh/id_ed25519
-          chmod 644 ~/.ssh/id_ed25519.pub
       - name: Restart Codespace
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
@@ -57,105 +46,48 @@ jobs:
           done
           echo "Failed to restart Codespace $CODESPACE_NAME after $MAX_RETRIES attempts."
           exit 1
-      - name: Wake Up Codespace
+      - name: Verify Codespace and VNC Service
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 300 seconds for Codespace to stabilize..."
-          sleep 300
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/id_ed25519
-          RETRY_COUNT=0
-          MAX_RETRIES=5
-          until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            echo "Attempt $((RETRY_COUNT + 1)): Running gh codespace ssh..."
-            gh codespace ssh -c $CODESPACE_NAME -- whoami > ssh_output.log 2>&1
-            SSH_STATUS=$?
-            cat ssh_output.log
-            if [ $SSH_STATUS -eq 0 ]; then
-              echo "Successfully connected to Codespace $CODESPACE_NAME via SSH."
-              break
-            fi
-            echo "Failed to SSH (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
-            echo "Retrying in 30 seconds..."
-            sleep 30
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-          done
-          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-            echo "Error: Failed to SSH after $MAX_RETRIES attempts."
+          echo "Waiting 180 seconds for Codespace to stabilize and start-docker.sh to complete..."
+          sleep 180
+          echo "Fetching Codespace details..."
+          CODESPACE_DETAILS=$(gh api /user/codespaces/$CODESPACE_NAME --jq '{state: .state, web_url: .web_url}')
+          CODESPACE_STATE=$(echo "$CODESPACE_DETAILS" | jq -r '.state')
+          echo "Codespace state: $CODESPACE_STATE"
+          if [ "$CODESPACE_STATE" != "Available" ]; then
+            echo "Error: Codespace $CODESPACE_NAME is not in Available state."
             exit 1
-          fi
-          echo "Checking Docker daemon..."
-          DOCKER_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker ps >/dev/null 2>&1 && echo 'Docker daemon running' || echo 'Docker daemon not running'")
-          if echo "$DOCKER_CHECK" | grep -q "Docker daemon running"; then
-            echo "Docker daemon is running."
-          else
-            echo "Error: Docker daemon is not running or inaccessible."
-            echo "Docker check output: $DOCKER_CHECK"
-            exit 1
-          fi
-          echo "Checking start-docker.sh execution..."
-          RETRY_COUNT=0
-          MAX_RETRIES=5
-          until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log 2>&1")
-            if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
-              echo "start-docker.sh executed successfully."
-              break
-            fi
-            echo "Log check attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: start-docker.sh not yet completed."
-            echo "Log contents: $LOG_CHECK"
-            echo "Retrying in 30 seconds..."
-            sleep 30
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-          done
-          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-            echo "Warning: start-docker.sh did not execute or failed after $MAX_RETRIES attempts."
-            echo "Log contents: $LOG_CHECK"
-            echo "Attempting to run start-docker.sh manually..."
-            RUN_SCRIPT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "bash /workspaces/gofly/.devcontainer/start-docker.sh 2>&1")
-            RUN_STATUS=$?
-            echo "Manual execution output: $RUN_SCRIPT"
-            if [ $RUN_STATUS -ne 0 ]; then
-              echo "Error: Manual execution of start-docker.sh failed."
-              exit 1
-            fi
-            echo "Checking start-docker.sh log after manual execution..."
-            LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log 2>&1")
-            if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
-              echo "start-docker.sh executed successfully after manual run."
-            else
-              echo "Error: start-docker.sh still failed."
-              echo "Log contents: $LOG_CHECK"
-              exit 1
-            fi
           fi
           echo "Ensuring port 6200 visibility..."
           gh codespace ports visibility 6200:public -c $CODESPACE_NAME
-          echo "Verifying container status..."
-          CONTAINER_STATUS=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker ps -q -f name=agitated_cannon 2>&1")
-          if [ -n "$CONTAINER_STATUS" ]; then
-            echo "Container agitated_cannon is running."
-          else
-            echo "Error: Container agitated_cannon is not running."
+          echo "Fetching public URL for port 6200..."
+          PORT_INFO=$(gh codespace ports -c $CODESPACE_NAME --json ports | jq -r '.ports[] | select(.sourcePort == 6200) | .publicURL')
+          if [ -z "$PORT_INFO" ]; then
+            echo "Error: Could not retrieve public URL for port 6200."
             exit 1
           fi
-          echo "Checking if port 6200 is listening..."
-          PORT_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "curl -s -I http://localhost:6200 2>&1")
-          if echo "$PORT_CHECK" | grep -q "HTTP/1.1 200 OK"; then
-            echo "Port 6200 is listening."
-          else
-            echo "Error: Port 6200 is not listening."
-            echo "Port check output: $PORT_CHECK"
-            exit 1
-          fi
-          echo "Verifying VNC accessibility..."
-          VNC_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "curl -I http://localhost:6200 2>&1")
-          VNC_STATUS=$?
-          if [ $VNC_STATUS -eq 0 ] && echo "$VNC_OUTPUT" | grep -q "HTTP/1.1 200 OK"; then
-            echo "VNC service is accessible on port 6200."
-          else
-            echo "Error: VNC service is not accessible."
-            echo "VNC output: $VNC_OUTPUT"
+          echo "Public URL for port 6200: $PORT_INFO"
+          echo "Checking VNC service accessibility..."
+          RETRY_COUNT=0
+          MAX_RETRIES=5
+          until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
+            echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Checking VNC service..."
+            CURL_OUTPUT=$(curl -s -I "$PORT_INFO" 2>&1)
+            CURL_STATUS=$?
+            if [ $CURL_STATUS -eq 0 ] && echo "$CURL_OUTPUT" | grep -q "HTTP/1.1 200 OK"; then
+              echo "VNC service is accessible at $PORT_INFO."
+              break
+            fi
+            echo "VNC service not yet accessible (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
+            echo "Curl output: $CURL_OUTPUT"
+            echo "Retrying in 30 seconds..."
+            sleep 30
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+          done
+          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+            echo "Error: VNC service is not accessible after $MAX_RETRIES attempts."
+            echo "Final curl output: $CURL_OUTPUT"
             exit 1
           fi
