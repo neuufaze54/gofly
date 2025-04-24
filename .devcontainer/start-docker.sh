@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to start Docker container on Codespace startup
-# Updated on 2025-04-24 to fix supervisorctl service names for x:xvfb and x:x11vnc
+# Updated on 2025-04-24 to add delay before supervisorctl restarts for x:xvfb and x:x11vnc
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -56,14 +56,17 @@ set_vnc_resolution() {
     else
         echo "Warning: Failed to update supervisord configuration. Continuing..." | tee -a "$LOG_FILE"
     fi
+    # Wait for supervisord to be fully initialized
+    echo "Waiting 5 seconds for supervisord initialization..." | tee -a "$LOG_FILE"
+    sleep 8
     # Restart xvfb and x11vnc services
-    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:xvfb'"; then
+    if docker exec $container bash -c 'supervisorctl restart x:xvfb' >>"$LOG_FILE" 2>&1; then
         echo "Xvfb service restarted." | tee -a "$LOG_FILE"
     else
         echo "Warning: Failed to restart Xvfb service. Continuing..." | tee -a "$LOG_FILE"
     fi
     sleep 2
-    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:x11vnc'"; then
+    if docker exec $container bash -c 'supervisorctl restart x:x11vnc' >>"$LOG_FILE" 2>&1; then
         echo "x11vnc service restarted." | tee -a "$LOG_FILE"
     else
         echo "Warning: Failed to restart x11vnc service. Continuing..." | tee -a "$LOG_FILE"
