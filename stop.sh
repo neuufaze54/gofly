@@ -14,7 +14,7 @@ if ! command -v gh &> /dev/null; then
     echo "GitHub CLI installed successfully."
 fi
 
-# Step 0.5: Stop and remove the agitated_cannon container
+# Step 0.5: Stop the agitated_cannon container
 if docker ps -q -f name=agitated_cannon | grep -q .; then
     echo "Stopping Docker container agitated_cannon..."
     docker stop agitated_cannon
@@ -22,16 +22,6 @@ if docker ps -q -f name=agitated_cannon | grep -q .; then
         echo "Docker container agitated_cannon stopped successfully."
     else
         echo "Error: Failed to stop Docker container agitated_cannon."
-        exit 1
-    fi
-fi
-if docker ps -a -q -f name=agitated_cannon | grep -q .; then
-    echo "Removing Docker container agitated_cannon..."
-    docker rm agitated_cannon
-    if [ $? -eq 0 ]; then
-        echo "Docker container agitated_cannon removed successfully."
-    else
-        echo "Error: Failed to remove Docker container agitated_cannon."
         exit 1
     fi
 fi
