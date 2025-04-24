@@ -1,16 +1,18 @@
 {
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-  "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {}
-  },
-  "postCreateCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh",
-  "postStartCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh",
-  "postAttachCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh",
-  "customizations": {
-    "vscode": {
-      "extensions": []
-    }
-  },
-  "onCreateCommand": "curl -LO https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 && chmod +x jq-linux64 && mv jq-linux64 /usr/local/bin/jq && curl -LO https://github.com/cli/cli/releases/download/v2.4.0/gh_2.4.0_linux_amd64.tar.gz && tar -xzf gh_2.4.0_linux_amd64.tar.gz && mv gh_2.4.0_linux_amd64/bin/gh /usr/local/bin/ && rm -rf gh_2.4.0_linux_amd64 gh_2.4.0_linux_amd64.tar.gz && echo \"$GITHUB_TOKEN\" | gh auth login --with-token && gh codespace ports visibility 6200:public -c fictional-space-broccoli-pjw5r6gx96652r99x"
+    "name": "GoFly Codespace",
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+        "ghcr.io/devcontainers/features/sshd:1": {
+            "version": "latest"
+        }
+    },
+    "portsAttributes": {
+        "6200": {
+            "label": "VNC",
+            "onAutoForward": "notify"
+        }
+    },
+    "postCreateCommand": "sudo apt-get update && sudo apt-get install -y netcat-traditional",
+    "postStartCommand": "bash /workspaces/gofly/.devcontainer/start-docker.sh"
 }
