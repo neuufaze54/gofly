@@ -102,16 +102,39 @@ jobs:
             echo "Warning: Failed to SSH into Codespace $CODESPACE_NAME after $MAX_RETRIES attempts. Port forwarding may not be initialized."
             exit 1
           fi
+          echo "Checking Docker daemon..."
+          DOCKER_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker info --format '{{.ServerVersion}}'" 2>&1)
+          if [ $? -eq 0 ]; then
+            echo "Docker daemon is running. Version: $DOCKER_CHECK"
+          else
+            echo "Error: Docker daemon is not running or inaccessible."
+            echo "Docker info output: $DOCKER_CHECK"
+            exit 1
+          fi
           echo "Checking start-docker.sh execution..."
           LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log" 2>&1)
           if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
             echo "start-docker.sh executed successfully."
           else
-            echo "Error: start-docker.sh did not execute or failed."
+            echo "Warning: start-docker.sh did not execute or failed."
             echo "Log contents: $LOG_CHECK"
-            gh codespace ssh -c $CODESPACE_NAME -- sh -c "docker info" > docker_info.log 2>&1
-            cat docker_info.log
-            exit 1
+            echo "Attempting to run start-docker.sh manually..."
+            RUN_SCRIPT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "bash /workspaces/gofly/.devcontainer/start-docker.sh" 2>&1)
+            RUN_STATUS=$?
+            echo "Manual execution output: $RUN_SCRIPT"
+            if [ $RUN_STATUS -ne 0 ]; then
+              echo "Error: Manual execution of start-docker.sh failed."
+              exit 1
+            fi
+            echo "Checking start-docker.sh log after manual execution..."
+            LOG_CHECK=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "cat /workspaces/gofly/start-docker.log" 2>&1)
+            if echo "$LOG_CHECK" | grep -q "start-docker.sh completed successfully"; then
+              echo "start-docker.sh executed successfully after manual run."
+            else
+              echo "Error: start-docker.sh still failed."
+              echo "Log contents: $LOG_CHECK"
+              exit 1
+            fi
           fi
           echo "Checking current port forwarding status..."
           gh codespace ports -c $CODESPACE_NAME > ports.log 2>&1
@@ -132,7 +155,7 @@ jobs:
           PORT_RETRY_COUNT=0
           PORT_MAX_RETRIES=5
           until [ $PORT_RETRY_COUNT -ge $PORT_MAX_RETRIES ]; do
-            echo "Port check attempt $((PORT_RETRY_COUNT + 1))/$PORT_MAX_RETRIES..."
+            echo "Port check attempt $((PORT_RETRY_COUNT + 1))/$MAX_RETRIES..."
             NC_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200 && echo 'Port 6200 is listening'" 2>&1)
             NC_STATUS=$?
             echo "Netcat output: $NC_OUTPUT"
