@@ -93,7 +93,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             run_docker_command "docker rm agitated_cannon"
             # Proceed to create a new container
             echo "Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
-            if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
+            if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
                 echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
                 docker logs agitated_cannon >> "$LOG_FILE" 2>&1
                 exit 1
@@ -105,7 +105,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
         fi
     fi
     # Verify resolution for existing containers
-    echo "Verifying VNC resolution for existing container $container..." | tee -a "$LOG_FILE"
+    echo "Verifying VNC resolution for existing container agitated_cannon..." | tee -a "$LOG_FILE"
     RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
     if [ "$RESOLUTION" = "1366x641" ]; then
         echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
@@ -117,7 +117,7 @@ else
     echo "No existing container found. Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
     echo "Listing all containers for debugging:" >> "$LOG_FILE"
     docker ps -a >> "$LOG_FILE" 2>&1
-    if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION= verdadeira dorowu/ubuntu-desktop-lxde-vnc"; then
+    if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
         echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
         docker logs agitated_cannon >> "$LOG_FILE" 2>&1
         exit 1
