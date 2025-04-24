@@ -9,7 +9,7 @@ jobs:
       - name: Install GitHub CLI and SSH Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gh openssh-client netcat
+          sudo apt-get install -y gh openssh-client netcat-traditional
           echo "GitHub CLI version:"
           gh --version
           echo "Netcat version:"
