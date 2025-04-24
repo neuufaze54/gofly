@@ -32,7 +32,7 @@ run_docker_command() {
     local delay=5
 
     while [ $attempt -le $max_attempts ]; do
-        if eval "$cmd" >/dev/null 2>>"$LOG_FILE"; then
+        if bash -c "$cmd" >/dev/null 2>>"$LOG_FILE"; then
             return 0
         fi
         echo "Docker command failed (attempt $attempt/$max_attempts): $cmd" | tee -a "$LOG_FILE"
@@ -52,10 +52,10 @@ if ! check_docker_daemon; then
 fi
 
 # Check if the container exists (running or stopped)
-if run_docker_command "docker ps -a -q -f name=agitated_cannon | grep -q ."; then
+if docker ps -a -q -f name=agitated_cannon | grep -q .; then
     echo "Container agitated_cannon exists." >> "$LOG_FILE"
     # Check if the container is running
-    if run_docker_command "docker ps -q -f name=agitated_cannon | grep -q ."; then
+    if docker ps -q -f name=agitated_cannon | grep -q .; then
         echo "Docker container agitated_cannon is already running." | tee -a "$LOG_FILE"
     else
         # Container exists but is stopped; start it to preserve state
