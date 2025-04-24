@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Script to start Docker container on Codespace startup
+# Updated on 2025-04-24 to fix supervisorctl service names and noVNC scaling
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -54,6 +55,26 @@ set_vnc_resolution() {
         echo "Updated supervisord configuration for Xvfb resolution 1366x641." | tee -a "$LOG_FILE"
     else
         echo "Warning: Failed to update supervisord configuration. Continuing..." | tee -a "$LOG_FILE"
+    fi
+    # Restart xvfb and x11vnc services
+    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:xvfb'"; then
+        echo "Xvfb service restarted." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: Failed to restart Xvfb service. Attempting fallback restart..." | tee -a "$LOG_FILE"
+        run_docker_command "docker exec $container bash -c 'killall Xvfb; sleep 2; supervisorctl start x:xvfb'"
+    fi
+    sleep 2
+    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:x11vnc'"; then
+        echo "x11vnc service restarted." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: Failed to restart x11vnc service. Attempting fallback restart..." | tee -a "$LOG_FILE"
+        run_docker_command "docker exec $container bash -c 'killall x11vnc; sleep 2; supervisorctl start x:x11vnc'"
+    fi
+    # Disable noVNC scaling
+    if run_docker_command "docker exec $container bash -c 'sed -i \"s/resizeSession: true/resizeSession: false/\" /usr/share/novnc/app/ui.js'"; then
+        echo "Disabled noVNC scaling (resizeSession set to false)." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: Failed to disable noVNC scaling. Use ?resize=off in VNC URL." | tee -a "$LOG_FILE"
     fi
     # Verify resolution
     sleep 3
