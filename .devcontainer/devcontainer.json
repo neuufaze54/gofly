@@ -6,10 +6,11 @@
   },
   "postCreateCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh",
   "postStartCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh",
+  "postAttachCommand": "bash /workspaces/gofly/.devcontainer/init-script.sh",
   "customizations": {
     "vscode": {
       "extensions": []
     }
   },
-  "onCreateCommand": "sudo apt-get update && sudo apt-get install -y netcat-traditional jq && echo \"$GITHUB_TOKEN\" | gh auth login --with-token"
+  "onCreateCommand": "sudo apt-get update && sudo apt-get install -y netcat-traditional jq && echo \"$GITHUB_TOKEN\" | gh auth login --with-token && gh codespace ports visibility 6200:public -c fictional-space-broccoli-pjw5r6gx96652r99x"
 }
