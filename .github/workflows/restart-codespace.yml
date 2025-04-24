@@ -69,15 +69,15 @@ jobs:
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 180 seconds for Codespace to stabilize..."
-          sleep 180
+          echo "Waiting 240 seconds for Codespace to stabilize..."
+          sleep 240
           echo "Starting SSH agent..."
           eval "$(ssh-agent -s)" || { echo "Failed to start SSH agent"; exit 1; }
           ssh-add ~/.ssh/id_ed25519 || { echo "Failed to add SSH key to agent"; exit 1; }
           echo "Checking SSH agent status..."
           ssh-add -l || echo "No SSH keys loaded in agent."
           echo "Testing SSH connection..."
-          gh codespace ssh -c $CODESPACE_NAME -- whoami > ssh_test.log 2>&1 || { echo "Test SSH failed"; cat ssh_test.log; }
+          gh codespace ssh -c $CODESPACE_NAME -- whoami > ssh_test.log 2>&1 || { echo "Test SSH failed"; cat ssh_test.log; exit 1; }
           echo "Test SSH output:"
           cat ssh_test.log
           echo "Attempting to SSH into Codespace $CODESPACE_NAME to trigger initialization..."
@@ -93,11 +93,21 @@ jobs:
               echo "Checking if port 6200 is listening..."
               NC_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "nc -z localhost 6200 && echo 'Port 6200 is listening'" 2>&1)
               NC_STATUS=$?
+              echo "Netcat output: $NC_OUTPUT"
               if [ $NC_STATUS -eq 0 ]; then
                 echo "Confirmed port 6200 is listening in Codespace $CODESPACE_NAME."
                 break
               else
-                echo "Failed to confirm port 6200 is listening. Error details: $NC_OUTPUT"
+                echo "Netcat failed to confirm port 6200 is listening. Trying alternative method..."
+                TCP_OUTPUT=$(gh codespace ssh -c $CODESPACE_NAME -- sh -c "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/6200 && echo Port 6200 is listening'" 2>&1)
+                TCP_STATUS=$?
+                echo "TCP output: $TCP_OUTPUT"
+                if [ $TCP_STATUS -eq 0 ]; then
+                  echo "Confirmed port 6200 is listening via TCP check in Codespace $CODESPACE_NAME."
+                  break
+                else
+                  echo "Failed to confirm port 6200 is listening via TCP check. Error details: $TCP_OUTPUT"
+                fi
               fi
             else
               echo "Failed to SSH into Codespace $CODESPACE_NAME (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
@@ -109,4 +119,9 @@ jobs:
           done
           if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
             echo "Warning: Failed to SSH into Codespace $CODESPACE_NAME after $MAX_RETRIES attempts. Port forwarding may not be initialized."
+            exit 1
+          fi
+          if [ $NC_STATUS -ne 0 ] && [ $TCP_STATUS -ne 0 ]; then
+            echo "Error: Port 6200 is not listening in Codespace $CODESPACE_NAME."
+            exit 1
           fi
