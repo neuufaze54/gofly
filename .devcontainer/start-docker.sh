@@ -49,24 +49,23 @@ run_docker_command() {
 set_vnc_resolution() {
     local container="$1"
     echo "Setting VNC resolution to 1366x641 for container $container..." | tee -a "$LOG_FILE"
-    # Update VNC config file
-    if run_docker_command "docker exec $container bash -c 'mkdir -p /root/.vnc && echo \"geometry=1366x641\" > /root/.vnc/config'"; then
-        echo "VNC configuration updated with geometry=1366x641." | tee -a "$LOG_FILE"
+    # Update supervisord configuration for xvfb
+    if run_docker_command "docker exec $container bash -c 'sed -i \"s/-screen 0 [0-9x]*24/-screen 0 1366x641x24/\" /etc/supervisor/conf.d/supervisord.conf || echo \"command=Xvfb :1 -screen 0 1366x641x24\" >> /etc/supervisor/conf.d/supervisord.conf'"; then
+        echo "Updated supervisord configuration for Xvfb resolution 1366x641." | tee -a "$LOG_FILE"
     else
-        echo "Warning: Failed to update VNC configuration file. Continuing..." | tee -a "$LOG_FILE"
+        echo "Warning: Failed to update supervisord configuration. Continuing..." | tee -a "$LOG_FILE"
     fi
-    # Stop existing VNC server
-    if run_docker_command "docker exec $container bash -c 'vncserver -kill :1'"; then
-        echo "Existing VNC server stopped." | tee -a "$LOG_FILE"
+    # Restart xvfb and x11vnc services
+    if run_docker_command "docker exec $container bash -c 'supervisorctl restart xvfb'"; then
+        echo "Xvfb service restarted." | tee -a "$LOG_FILE"
     else
-        echo "Warning: No VNC server was running or failed to stop. Continuing..." | tee -a "$LOG_FILE"
+        echo "Warning: Failed to restart Xvfb service. Continuing..." | tee -a "$LOG_FILE"
     fi
-    # Start VNC server with desired resolution
     sleep 2
-    if run_docker_command "docker exec $container bash -c 'vncserver :1 -geometry 1366x641'"; then
-        echo "VNC server started with resolution 1366x641." | tee -a "$LOG_FILE"
+    if run_docker_command "docker exec $container bash -c 'supervisorctl restart x11vnc'"; then
+        echo "x11vnc service restarted." | tee -a "$LOG_FILE"
     else
-        echo "Warning: Failed to start VNC server with resolution 1366x641." | tee -a "$LOG_FILE"
+        echo "Warning: Failed to restart x11vnc service. Continuing..." | tee -a "$LOG_FILE"
     fi
     # Verify resolution
     sleep 2
@@ -105,7 +104,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             run_docker_command "docker rm agitated_cannon"
             # Proceed to create a new container
             echo "Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
-            if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
+            if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
                 echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
                 docker logs agitated_cannon >> "$LOG_FILE" 2>&1
                 exit 1
@@ -122,7 +121,7 @@ else
     echo "No existing container found. Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
     echo "Listing all containers for debugging:" >> "$LOG_FILE"
     docker ps -a >> "$LOG_FILE" 2>&1
-    if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
+    if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
         echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
         docker logs agitated_cannon >> "$LOG_FILE" 2>&1
         exit 1
