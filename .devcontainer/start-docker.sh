@@ -100,7 +100,6 @@ set_vnc_resolution() {
     local is_new_container="$2"
     echo "Setting VNC resolution to 1366x641 for container $container..." | tee -a "$LOG_FILE"
 
-    # Update supervisord configuration
     run_docker_command "docker exec $container bash -c 'sed -i \"s/-screen 0 [0-9x]*24/-screen 0 1366x641x24/\" /etc/supervisor/conf.d/supervisord.conf || echo \"command=Xvfb :1 -screen 0 1366x641x24\" >> /etc/supervisor/conf.d/supervisord.conf'"
     run_docker_command "docker exec $container bash -c 'sed -i \"s/user=%USER%/user=root/\" /etc/supervisor/conf.d/supervisord.conf'"
     run_docker_command "docker exec $container bash -c 'sed -i \"s/HOME=\\\"%HOME%\\\"/HOME=\\\"\/root\\\"/\" /etc/supervisor/conf.d/supervisord.conf'"
@@ -110,23 +109,12 @@ set_vnc_resolution() {
     docker exec $container bash -c "cat /etc/supervisor/conf.d/supervisord.conf" >> "$LOG_FILE" 2>&1
 
     if [ "$is_new_container" = "false" ]; then
-        # Ensure supervisord is ready
         verify_supervisord_ready "$container"
 
         echo "Restarting Xvfb and x11vnc services..." | tee -a "$LOG_FILE"
-        # Restart Xvfb with retries
-        if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:xvfb'"; then
-            echo "Xvfb service restarted successfully." | tee -a "$LOG_FILE"
-        else
-            echo "Warning: Failed to restart Xvfb service after retries. Continuing..." | tee -a "$LOG_FILE"
-        fi
+        run_docker_command "docker exec $container bash -c 'supervisorctl restart x:xvfb'" || echo "Warning: Failed to restart Xvfb service after retries. Continuing..." | tee -a "$LOG_FILE"
         sleep 2
-        # Restart x11vnc with retries
-        if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:x11vnc'"; then
-            echo "x11vnc service restarted successfully." | tee -a "$LOG_FILE"
-        else
-            echo "Warning: Failed to restart x11vnc service after retries. Continuing..." | tee -a "$LOG_FILE"
-        fi
+        run_docker_command "docker exec $container bash -c 'supervisorctl restart x:x11vnc'" || echo "Warning: Failed to restart x11vnc service after retries. Continuing..." | tee -a "$LOG_FILE"
     else
         echo "Skipping service restarts for new container, relying on supervisord startup." | tee -a "$LOG_FILE"
     fi
@@ -134,30 +122,20 @@ set_vnc_resolution() {
     echo "Waiting 10 seconds for services to stabilize..." | tee -a "$LOG_FILE"
     sleep 10
 
-    # Log service status
     echo "Supervisord status after restarts:" >> "$LOG_FILE"
     docker exec $container bash -c "supervisorctl status" >> "$LOG_FILE" 2>&1
 
-    # Verify resolution
     if verify_vnc_resolution "$container"; then
         echo "VNC resolution set and verified successfully." | tee -a "$LOG_FILE"
     else
         echo "Error: Failed to verify VNC resolution after retries. Attempting container restart..." | tee -a "$LOG_FILE"
-        if run_docker_command "docker restart $container"; then
-            echo "Container $container restarted successfully." | tee -a "$LOG_FILE"
-            sleep 10
-            if verify_vnc_resolution "$container"; then
-                echo "VNC resolution verified after container restart." | tee -a "$LOG_FILE"
-            else
-                echo "Error: VNC resolution still invalid after container restart." | tee -a "$LOG_FILE"
-                docker logs $container >> "$LOG_FILE" 2>&1
-                return 1
-            fi
-        else
-            echo "Error: Failed to restart container $container." | tee -a "$LOG_FILE"
+        run_docker_command "docker restart $container"
+        sleep 10
+        verify_vnc_resolution "$container" || {
+            echo "Error: VNC resolution still invalid after container restart." | tee -a "$LOG_FILE"
             docker logs $container >> "$LOG_FILE" 2>&1
             return 1
-        fi
+        }
     fi
 
     echo "Container startup logs:" >> "$LOG_FILE"
@@ -177,23 +155,18 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
         echo "Docker container agitated_cannon is already running." | tee -a "$LOG_FILE"
         echo "Waiting 10 seconds for services to stabilize..." | tee -a "$LOG_FILE"
         sleep 10
-        if ! verify_vnc_resolution "agitated_cannon"; then
-            set_vnc_resolution "agitated_cannon" "false"
-        fi
+        verify_vnc_resolution "agitated_cannon" || set_vnc_resolution "agitated_cannon" "false"
     else
         echo "Starting stopped Docker container agitated_cannon..." | tee -a "$LOG_FILE"
-        if ! run_docker_command "docker start agitated_cannon"; then
+        run_docker_command "docker start agitated_cannon" || {
             echo "Removing failed container agitated_cannon to recreate it..." | tee -a "$LOG_FILE"
             run_docker_command "docker rm agitated_cannon"
             run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
             set_vnc_resolution "agitated_cannon" "true"
-        else
-            echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
-            sleep 10
-            if ! verify_vnc_resolution "agitated_cannon"; then
-                set_vnc_resolution "agitated_cannon" "false"
-            fi
-        fi
+        }
+        echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
+        sleep 10
+        verify_vnc_resolution "agitated_cannon" || set_vnc_resolution "agitated_cannon" "false"
     fi
 else
     echo "No existing container found. Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
@@ -204,23 +177,18 @@ fi
 sleep 5
 if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "VNC service is accessible on port 6200." | tee -a "$LOG_FILE"
-    echo "Creating mohamed.txt in /root/Desktop..." | tee -a "$LOG_FILE"
-    run_docker_command "docker exec agitated_cannon bash -c 'mkdir -p /root/Desktop && echo \"hello\" > /root/Desktop/mohamed.txt'"
-    FILE_CONTENT=$(docker exec agitated_cannon cat /root/Desktop/mohamed.txt 2>/dev/null)
-    if [ "$FILE_CONTENT" = "hello" ]; then
-        echo "mohamed.txt contains expected content: 'hello'." | tee -a "$LOG_FILE"
-    else
-        echo "Error: mohamed.txt does not contain expected content. Content: '$FILE_CONTENT'" | tee -a "$LOG_FILE"
-        exit 1
-    fi
 
-    # Execute klik.sh directly
     echo "Executing klik.sh directly from /root/Desktop..." | tee -a "$LOG_FILE"
-    if run_docker_command "docker exec agitated_cannon bash -c 'export DISPLAY=:1; bash /root/Desktop/klik.sh'"; then
-        echo "klik.sh executed successfully." | tee -a "$LOG_FILE"
-    else
-        echo "Warning: Failed to execute klik.sh. Continuing..." | tee -a "$LOG_FILE"
-    fi
+    docker exec agitated_cannon bash -c 'export DISPLAY=:1; bash /root/Desktop/klik.sh' &
+
+    echo "Monitoring for finish.txt..." | tee -a "$LOG_FILE"
+    while true; do
+        if docker exec agitated_cannon bash -c 'test -f /root/Desktop/finish.txt'; then
+            echo "✅ finish.txt has appeared inside the container after waiting." | tee -a "$LOG_FILE"
+            break
+        fi
+        sleep 2
+    done
 
     echo "start-docker.sh completed successfully" | tee -a "$LOG_FILE"
 else
