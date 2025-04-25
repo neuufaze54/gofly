@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to start Docker container on Codespace startup
-# Updated on 2025-04-25 to fix supervisord configuration (%USER%, %HOME%) and ensure container runs after Codespace restart
+# Updated on 2025-04-25 to add delay before initial resolution check and stabilize x11vnc
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -68,10 +68,16 @@ set_vnc_resolution() {
     else
         echo "Warning: Failed to fix %HOME% in supervisord configuration. Continuing..." | tee -a "$LOG_FILE"
     fi
+    # Update x11vnc configuration to ensure stability
+    if run_docker_command "docker exec $container bash -c 'sed -i \"s/command=x11vnc .*/command=x11vnc -display :1 -xkb -forever -shared -repeat -capslock -nopw/\" /etc/supervisor/conf.d/supervisord.conf'"; then
+        echo "Updated x11vnc configuration with -nopw." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: Failed to update x11vnc configuration. Continuing..." | tee -a "$LOG_FILE"
+    fi
     # Log supervisord configuration for debugging
     echo "Supervisord configuration after update:" >> "$LOG_FILE"
     docker exec $container bash -c "cat /etc/supervisor/conf.d/supervisord.conf" >> "$LOG_FILE" 2>&1
-    # Restart services only for existing containers
+    # Restart services only for existing containers if needed
     if [ "$is_new_container" = "false" ]; then
         echo "Waiting 10 seconds for supervisord initialization..." | tee -a "$LOG_FILE"
         sleep 10
@@ -122,6 +128,9 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
     # Check if the container is running
     if docker ps -q -f name=agitated_cannon | grep -q .; then
         echo "Docker container agitated_cannon is already running." | tee -a "$LOG_FILE"
+        # Wait for services to stabilize before verifying resolution
+        echo "Waiting 10 seconds for services to stabilize..." | tee -a "$LOG_FILE"
+        sleep 10
         # Verify resolution for existing containers
         echo "Verifying VNC resolution for existing container agitated_cannon..." | tee -a "$LOG_FILE"
         RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
@@ -150,6 +159,9 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             set_vnc_resolution "agitated_cannon" "true"
         else
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
+            # Wait for services to stabilize before verifying resolution
+            echo "Waiting 10 seconds for services to stabilize..." | tee -a "$LOG_FILE"
+            sleep 10
             # Verify resolution for existing containers
             echo "Verifying VNC resolution for existing container agitated_cannon..." | tee -a "$LOG_FILE"
             RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
@@ -164,7 +176,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
 else
     # Container doesn't exist; create and run it
     echo "No existing container found. Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
-    echo " Patreon: Listing all containers for debugging:" >> "$LOG_FILE"
+    echo "Listing all containers for debugging:" >> "$LOG_FILE"
     docker ps -a >> "$LOG_FILE" 2>&1
     if ! run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"; then
         echo "Error: Failed to start new Docker container agitated_cannon." | tee -a "$LOG_FILE"
