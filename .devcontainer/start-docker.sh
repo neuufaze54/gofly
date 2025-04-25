@@ -3,6 +3,7 @@
 # Script to start Docker container on Codespace startup
 # Updated on 2025-04-25 to add delay before initial resolution check and stabilize x11vnc
 # Updated on 2025-04-25 to directly execute klik.sh from known path
+# Updated on 2025-04-25 to improve supervisord service restarts and resolution verification
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -47,12 +48,59 @@ run_docker_command() {
     return 1
 }
 
+# Function to verify supervisord is ready
+verify_supervisord_ready() {
+    local container="$1"
+    local max_attempts=5
+    local attempt=1
+    local delay=5
+
+    echo "Verifying supervisord is ready in container $container..." | tee -a "$LOG_FILE"
+    while [ $attempt -le $max_attempts ]; do
+        if docker exec $container bash -c "supervisorctl status" >/dev/null 2>&1; then
+            echo "Supervisord is ready (attempt $attempt)." | tee -a "$LOG_FILE"
+            return 0
+        fi
+        echo "Supervisord not ready (attempt $attempt/$max_attempts). Retrying in $delay seconds..." | tee -a "$LOG_FILE"
+        sleep $delay
+        attempt=$((attempt + 1))
+    done
+
+    echo "Warning: Supervisord not ready after $max_attempts attempts. Continuing..." | tee -a "$LOG_FILE"
+    return 1
+}
+
+# Function to verify VNC resolution with retries
+verify_vnc_resolution() {
+    local container="$1"
+    local max_attempts=3
+    local attempt=1
+    local delay=5
+    local resolution=""
+
+    echo "Verifying VNC resolution for container $container..." | tee -a "$LOG_FILE"
+    while [ $attempt -le $max_attempts ]; do
+        resolution=$(docker exec $container bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
+        if [ "$resolution" = "1366x641" ]; then
+            echo "VNC resolution verified: $resolution pixels (attempt $attempt)." | tee -a "$LOG_FILE"
+            return 0
+        fi
+        echo "Resolution check failed (attempt $attempt/$max_attempts): got $resolution, expected 1366x641. Retrying in $delay seconds..." | tee -a "$LOG_FILE"
+        sleep $delay
+        attempt=$((attempt + 1))
+    done
+
+    echo "Warning: VNC resolution is $resolution, expected 1366x641 after $max_attempts attempts." | tee -a "$LOG_FILE"
+    return 1
+}
+
 # Function to set and verify VNC resolution
 set_vnc_resolution() {
     local container="$1"
     local is_new_container="$2"
     echo "Setting VNC resolution to 1366x641 for container $container..." | tee -a "$LOG_FILE"
 
+    # Update supervisord configuration
     run_docker_command "docker exec $container bash -c 'sed -i \"s/-screen 0 [0-9x]*24/-screen 0 1366x641x24/\" /etc/supervisor/conf.d/supervisord.conf || echo \"command=Xvfb :1 -screen 0 1366x641x24\" >> /etc/supervisor/conf.d/supervisord.conf'"
     run_docker_command "docker exec $container bash -c 'sed -i \"s/user=%USER%/user=root/\" /etc/supervisor/conf.d/supervisord.conf'"
     run_docker_command "docker exec $container bash -c 'sed -i \"s/HOME=\\\"%HOME%\\\"/HOME=\\\"\/root\\\"/\" /etc/supervisor/conf.d/supervisord.conf'"
@@ -62,11 +110,23 @@ set_vnc_resolution() {
     docker exec $container bash -c "cat /etc/supervisor/conf.d/supervisord.conf" >> "$LOG_FILE" 2>&1
 
     if [ "$is_new_container" = "false" ]; then
-        echo "Waiting 10 seconds for supervisord initialization..." | tee -a "$LOG_FILE"
-        sleep 10
-        docker exec $container bash -c 'supervisorctl restart x:xvfb' >>"$LOG_FILE" 2>&1
+        # Ensure supervisord is ready
+        verify_supervisord_ready "$container"
+
+        echo "Restarting Xvfb and x11vnc services..." | tee -a "$LOG_FILE"
+        # Restart Xvfb with retries
+        if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:xvfb'"; then
+            echo "Xvfb service restarted successfully." | tee -a "$LOG_FILE"
+        else
+            echo "Warning: Failed to restart Xvfb service after retries. Continuing..." | tee -a "$LOG_FILE"
+        fi
         sleep 2
-        docker exec $container bash -c 'supervisorctl restart x:x11vnc' >>"$LOG_FILE" 2>&1
+        # Restart x11vnc with retries
+        if run_docker_command "docker exec $container bash -c 'supervisorctl restart x:x11vnc'"; then
+            echo "x11vnc service restarted successfully." | tee -a "$LOG_FILE"
+        else
+            echo "Warning: Failed to restart x11vnc service after retries. Continuing..." | tee -a "$LOG_FILE"
+        fi
     else
         echo "Skipping service restarts for new container, relying on supervisord startup." | tee -a "$LOG_FILE"
     fi
@@ -74,17 +134,34 @@ set_vnc_resolution() {
     echo "Waiting 10 seconds for services to stabilize..." | tee -a "$LOG_FILE"
     sleep 10
 
-    RESOLUTION=$(docker exec $container bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
-    if [ "$RESOLUTION" = "1366x641" ]; then
-        echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
+    # Log service status
+    echo "Supervisord status after restarts:" >> "$LOG_FILE"
+    docker exec $container bash -c "supervisorctl status" >> "$LOG_FILE" 2>&1
+
+    # Verify resolution
+    if verify_vnc_resolution "$container"; then
+        echo "VNC resolution set and verified successfully." | tee -a "$LOG_FILE"
     else
-        echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
+        echo "Error: Failed to verify VNC resolution after retries. Attempting container restart..." | tee -a "$LOG_FILE"
+        if run_docker_command "docker restart $container"; then
+            echo "Container $container restarted successfully." | tee -a "$LOG_FILE"
+            sleep 10
+            if verify_vnc_resolution "$container"; then
+                echo "VNC resolution verified after container restart." | tee -a "$LOG_FILE"
+            else
+                echo "Error: VNC resolution still invalid after container restart." | tee -a "$LOG_FILE"
+                docker logs $container >> "$LOG_FILE" 2>&1
+                return 1
+            fi
+        else
+            echo "Error: Failed to restart container $container." | tee -a "$LOG_FILE"
+            docker logs $container >> "$LOG_FILE" 2>&1
+            return 1
+        fi
     fi
 
     echo "Container startup logs:" >> "$LOG_FILE"
     docker logs $container >> "$LOG_FILE" 2>&1
-    echo "Supervisord status:" >> "$LOG_FILE"
-    docker exec $container bash -c "supervisorctl status" >> "$LOG_FILE" 2>&1
     echo "CPU usage inside container:" >> "$LOG_FILE"
     docker exec $container bash -c "top -bn1 | head -n 10" >> "$LOG_FILE" 2>&1
 }
@@ -95,16 +172,12 @@ if ! check_docker_daemon; then
 fi
 
 if docker ps -a -q -f name=agitated_cannon | grep -q .; then
-    echo "Container agitated_cannon exists." >> "$LOG_FILE"
+    echo "Container agitated_cannon exists." | tee -a "$LOG_FILE"
     if docker ps -q -f name=agitated_cannon | grep -q .; then
         echo "Docker container agitated_cannon is already running." | tee -a "$LOG_FILE"
         echo "Waiting 10 seconds for services to stabilize..." | tee -a "$LOG_FILE"
         sleep 10
-        RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
-        if [ "$RESOLUTION" = "1366x641" ]; then
-            echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
-        else
-            echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
+        if ! verify_vnc_resolution "agitated_cannon"; then
             set_vnc_resolution "agitated_cannon" "false"
         fi
     else
@@ -117,11 +190,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
         else
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
             sleep 10
-            RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
-            if [ "$RESOLUTION" = "1366x641" ]; then
-                echo "VNC resolution verified: $RESOLUTION pixels." | tee -a "$LOG_FILE"
-            else
-                echo "Warning: VNC resolution is $RESOLUTION, expected 1366x641." | tee -a "$LOG_FILE"
+            if ! verify_vnc_resolution "agitated_cannon"; then
                 set_vnc_resolution "agitated_cannon" "false"
             fi
         fi
@@ -145,7 +214,7 @@ if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
         exit 1
     fi
 
-    # ✅ Execute klik.sh directly
+    # Execute klik.sh directly
     echo "Executing klik.sh directly from /root/Desktop..." | tee -a "$LOG_FILE"
     if run_docker_command "docker exec agitated_cannon bash -c 'export DISPLAY=:1; bash /root/Desktop/klik.sh'"; then
         echo "klik.sh executed successfully." | tee -a "$LOG_FILE"
