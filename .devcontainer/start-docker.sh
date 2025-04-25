@@ -2,6 +2,7 @@
 
 # Script to start Docker container on Codespace startup
 # Updated on 2025-04-25 to add delay before initial resolution check and stabilize x11vnc
+# Updated on 2025-04-25 to execute klik.sh with DISPLAY=:1 if found
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -209,6 +210,13 @@ if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
         docker exec agitated_cannon ls -l /root/Desktop >> "$LOG_FILE" 2>&1
         exit 1
     fi
+    # Search for and execute klik.sh
+    echo "Searching for klik.sh in filesystem..." | tee -a "$LOG_FILE"
+    if run_docker_command "docker exec agitated_cannon bash -c 'export DISPLAY=:1; SCRIPT=\$(find / -name klik.sh 2>/dev/null | head -n 1); if [ -n \"\$SCRIPT\" ]; then chmod +x \"\$SCRIPT\" && \"\$SCRIPT\"; else echo \"klik.sh not found\"; fi'"; then
+        echo "klik.sh executed successfully or not found." | tee -a "$LOG_FILE"
+    else
+        echo "Warning: Failed to execute klik.sh. Continuing..." | tee -a "$LOG_FILE"
+    fi
     echo "start-docker.sh completed successfully" | tee -a "$LOG_FILE"
 else
     echo "Error: VNC service is not accessible on port 6200 after starting container." | tee -a "$LOG_FILE"
@@ -224,6 +232,7 @@ else
             echo "Creating mohamed.txt in /root/Desktop after restart..." | tee -a "$LOG_FILE"
             if run_docker_command "docker exec agitated_cannon bash -c 'mkdir -p /root/Desktop && echo \"hello\" > /root/Desktop/mohamed.txt'"; then
                 echo "mohamed.txt created successfully in /root/Desktop after restart." | tee -a "$LOG_FILE"
+                # Verify file contents
                 FILE_CONTENT=$(docker exec agitated_cannon cat /root/Desktop/mohamed.txt 2>/dev/null)
                 if [ "$FILE_CONTENT" = "hello" ]; then
                     echo "mohamed.txt in /root/Desktop contains expected content: 'hello' after restart." | tee -a "$LOG_FILE"
@@ -235,6 +244,13 @@ else
                 echo "Error: Failed to create mohamed.txt in /root/Desktop after restart." | tee -a "$LOG_FILE"
                 docker exec agitated_cannon ls -l /root/Desktop >> "$LOG_FILE" 2>&1
                 exit 1
+            fi
+            # Search for and execute klik.sh after restart
+            echo "Searching for klik.sh in filesystem after restart..." | tee -a "$LOG_FILE"
+            if run_docker_command "docker exec agitated_cannon bash -c 'export DISPLAY=:1; SCRIPT=\$(find / -name klik.sh 2>/dev/null | head -n 1); if [ -n \"\$SCRIPT\" ]; then chmod +x \"\$SCRIPT\" && \"\$SCRIPT\"; else echo \"klik.sh not found\"; fi'"; then
+                echo "klik.sh executed successfully or not found after restart." | tee -a "$LOG_FILE"
+            else
+                echo "Warning: Failed to execute klik.sh after restart. Continuing..." | tee -a "$LOG_FILE"
             fi
             echo "start-docker.sh completed successfully after restart" | tee -a "$LOG_FILE"
         else
