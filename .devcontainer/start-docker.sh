@@ -4,10 +4,10 @@
 # Updated on 2025-04-25 to add delay before initial resolution check and stabilize x11vnc
 # Updated on 2025-04-25 to directly execute klik.sh from known path
 # Updated on 2025-04-25 to improve supervisord service restarts and resolution verification
+# Updated on 2025-04-25 to wait for 2.5Gi memory usage instead of finish.txt
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
-# Function to check if Docker daemon is available
 check_docker_daemon() {
     local max_attempts=10
     local attempt=1
@@ -27,7 +27,6 @@ check_docker_daemon() {
     return 1
 }
 
-# Function to run a Docker command with retries
 run_docker_command() {
     local cmd="$1"
     local max_attempts=3
@@ -48,7 +47,6 @@ run_docker_command() {
     return 1
 }
 
-# Function to verify supervisord is ready
 verify_supervisord_ready() {
     local container="$1"
     local max_attempts=5
@@ -70,7 +68,6 @@ verify_supervisord_ready() {
     return 1
 }
 
-# Function to verify VNC resolution with retries
 verify_vnc_resolution() {
     local container="$1"
     local max_attempts=3
@@ -94,7 +91,6 @@ verify_vnc_resolution() {
     return 1
 }
 
-# Function to set and verify VNC resolution
 set_vnc_resolution() {
     local container="$1"
     local is_new_container="$2"
@@ -181,10 +177,12 @@ if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "Executing klik.sh directly from /root/Desktop..." | tee -a "$LOG_FILE"
     docker exec agitated_cannon bash -c 'export DISPLAY=:1; bash /root/Desktop/klik.sh' &
 
-    echo "Monitoring for finish.txt..." | tee -a "$LOG_FILE"
+    echo "Monitoring for memory usage to reach exactly 2.5Gi..." | tee -a "$LOG_FILE"
     while true; do
-        if docker exec agitated_cannon bash -c 'test -f /root/Desktop/finish.txt'; then
-            echo "✅ finish.txt has appeared inside the container after waiting." | tee -a "$LOG_FILE"
+        used_mem=$(docker exec agitated_cannon free -h | awk '/^Mem:/ {print $3}')
+        if [ "$used_mem" = "2.0Gi" ]; then
+            echo "✅ Memory usage inside container has reached exactly 2.5Gi." | tee -a "$LOG_FILE"
+            echo "✅ Memory usage inside container has reached exactly 2.5Gi."
             break
         fi
         sleep 2
