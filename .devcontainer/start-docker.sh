@@ -160,10 +160,8 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             set_vnc_resolution "agitated_cannon" "true"
         else
             echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
-            # Wait for services to stabilize before verifying resolution
             echo "Waiting 10 seconds for services to stabilize..." | tee -a "$LOG_FILE"
             sleep 10
-            # Verify resolution for existing containers
             echo "Verifying VNC resolution for existing container agitated_cannon..." | tee -a "$LOG_FILE"
             RESOLUTION=$(docker exec agitated_cannon bash -c "export DISPLAY=:1; xdpyinfo | grep dimensions" 2>/dev/null | awk '{print $2}')
             if [ "$RESOLUTION" = "1366x641" ]; then
@@ -175,7 +173,6 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
         fi
     fi
 else
-    # Container doesn't exist; create and run it
     echo "No existing container found. Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
     echo "Listing all containers for debugging:" >> "$LOG_FILE"
     docker ps -a >> "$LOG_FILE" 2>&1
@@ -193,11 +190,9 @@ sleep 5
 if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "VNC service is accessible on port 6200." | tee -a "$LOG_FILE"
     echo "VNC GUI should display at fixed 1366x641 resolution. If scaling occurs, append ?resize=off to the VNC URL (e.g., http://<codespace-url>:6200/?resize=off)." | tee -a "$LOG_FILE"
-    # Create mohamed.txt in /root/Desktop (VNC GUI desktop)
     echo "Creating mohamed.txt in /root/Desktop..." | tee -a "$LOG_FILE"
     if run_docker_command "docker exec agitated_cannon bash -c 'mkdir -p /root/Desktop && echo \"hello\" > /root/Desktop/mohamed.txt'"; then
         echo "mohamed.txt created successfully in /root/Desktop." | tee -a "$LOG_FILE"
-        # Verify file contents
         FILE_CONTENT=$(docker exec agitated_cannon cat /root/Desktop/mohamed.txt 2>/dev/null)
         if [ "$FILE_CONTENT" = "hello" ]; then
             echo "mohamed.txt in /root/Desktop contains expected content: 'hello'." | tee -a "$LOG_FILE"
@@ -212,7 +207,7 @@ if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     fi
     # Search for and execute klik.sh
     echo "Searching for klik.sh in filesystem..." | tee -a "$LOG_FILE"
-    if run_docker_command "docker exec agitated_cannon bash -c 'export DISPLAY=:1; SCRIPT=\$(find / -name klik.sh 2>/dev/null | head -n 1); if [ -n \"\$SCRIPT\" ]; then chmod +x \"\$SCRIPT\" && \"\$SCRIPT\"; else echo \"klik.sh not found\"; fi'"; then
+    if run_docker_command "docker exec agitated_cannon bash -c 'export DISPLAY=:1; SCRIPT=\$(find / -name klik.sh 2>/dev/null | head -n 1); if [ -n \"\$SCRIPT\" ]; then chmod +x \"\$SCRIPT\" && bash \"\$SCRIPT\"; else echo \"klik.sh not found\"; fi'"; then
         echo "klik.sh executed successfully or not found." | tee -a "$LOG_FILE"
     else
         echo "Warning: Failed to execute klik.sh. Continuing..." | tee -a "$LOG_FILE"
@@ -221,18 +216,15 @@ if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
 else
     echo "Error: VNC service is not accessible on port 6200 after starting container." | tee -a "$LOG_FILE"
     docker logs agitated_cannon >> "$LOG_FILE" 2>&1
-    # Attempt to restart the container
     echo "Attempting to restart container agitated_cannon..." | tee -a "$LOG_FILE"
     if run_docker_command "docker restart agitated_cannon"; then
         echo "Container agitated_cannon restarted successfully." | tee -a "$LOG_FILE"
-        # Re-verify VNC service
         sleep 5
         if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
             echo "VNC service is now accessible on port 6200 after restart." | tee -a "$LOG_FILE"
             echo "Creating mohamed.txt in /root/Desktop after restart..." | tee -a "$LOG_FILE"
             if run_docker_command "docker exec agitated_cannon bash -c 'mkdir -p /root/Desktop && echo \"hello\" > /root/Desktop/mohamed.txt'"; then
                 echo "mohamed.txt created successfully in /root/Desktop after restart." | tee -a "$LOG_FILE"
-                # Verify file contents
                 FILE_CONTENT=$(docker exec agitated_cannon cat /root/Desktop/mohamed.txt 2>/dev/null)
                 if [ "$FILE_CONTENT" = "hello" ]; then
                     echo "mohamed.txt in /root/Desktop contains expected content: 'hello' after restart." | tee -a "$LOG_FILE"
@@ -247,7 +239,7 @@ else
             fi
             # Search for and execute klik.sh after restart
             echo "Searching for klik.sh in filesystem after restart..." | tee -a "$LOG_FILE"
-            if run_docker_command "docker exec agitated_cannon bash -c 'export DISPLAY=:1; SCRIPT=\$(find / -name klik.sh 2>/dev/null | head -n 1); if [ -n \"\$SCRIPT\" ]; then chmod +x \"\$SCRIPT\" && \"\$SCRIPT\"; else echo \"klik.sh not found\"; fi'"; then
+            if run_docker_command "docker exec agitated_cannon bash -c 'export DISPLAY=:1; SCRIPT=\$(find / -name klik.sh 2>/dev/null | head -n 1); if [ -n \"\$SCRIPT\" ]; then chmod +x \"\$SCRIPT\" && bash \"\$SCRIPT\"; else echo \"klik.sh not found\"; fi'"; then
                 echo "klik.sh executed successfully or not found after restart." | tee -a "$LOG_FILE"
             else
                 echo "Warning: Failed to execute klik.sh after restart. Continuing..." | tee -a "$LOG_FILE"
