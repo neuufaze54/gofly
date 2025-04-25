@@ -4,7 +4,8 @@
 # Updated on 2025-04-25 to add delay before initial resolution check and stabilize x11vnc
 # Updated on 2025-04-25 to directly execute klik.sh from known path
 # Updated on 2025-04-25 to improve supervisord service restarts and resolution verification
-# Updated on 2025-04-25 to wait for 2.5Gi memory usage instead of finish.txt
+# Updated on 2025-04-25 to wait for 2.0Gi memory usage instead of finish.txt
+# Updated on 2025-04-25 to remove and recreate container if resolution verification fails after restart
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -125,13 +126,55 @@ set_vnc_resolution() {
         echo "VNC resolution set and verified successfully." | tee -a "$LOG_FILE"
     else
         echo "Error: Failed to verify VNC resolution after retries. Attempting container restart..." | tee -a "$LOG_FILE"
-        run_docker_command "docker restart $container"
-        sleep 10
-        verify_vnc_resolution "$container" || {
-            echo "Error: VNC resolution still invalid after container restart." | tee -a "$LOG_FILE"
-            docker logs $container >> "$LOG_FILE" 2>&1
-            return 1
-        }
+        if run_docker_command "docker restart $container"; then
+            echo "Container $container restarted successfully." | tee -a "$LOG_FILE"
+            sleep 10
+            if verify_vnc_resolution "$container"; then
+                echo "VNC resolution verified after container restart." | tee -a "$LOG_FILE"
+            else
+                echo "Error: VNC resolution still invalid after container restart. Removing and recreating container..." | tee -a "$LOG_FILE"
+                run_docker_command "docker rm -f $container" || {
+                    echo "Error: Failed to remove container $container." | tee -a "$LOG_FILE"
+                    docker logs $container >> "$LOG_FILE" 2>&1
+                    return 1
+                }
+                echo "Creating new container $container..." | tee -a "$LOG_FILE"
+                run_docker_command "docker run -d --name $container -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc" || {
+                    echo "Error: Failed to create new container $container." | tee -a "$LOG_FILE"
+                    docker logs $container >> "$LOG_FILE" 2>&1
+                    return 1
+                }
+                echo "New container $container created successfully." | tee -a "$LOG_FILE"
+                # Re-run resolution setup for the new container
+                set_vnc_resolution "$container" "true"
+                if ! verify_vnc_resolution "$container"; then
+                    echo "Error: VNC resolution still invalid in new container." | tee -a "$LOG_FILE"
+                    docker logs $container >> "$LOG_FILE" 2>&1
+                    return 1
+                fi
+            fi
+        else
+            echo "Error: Failed to restart container $container. Removing and recreating container..." | tee -a "$LOG_FILE"
+            run_docker_command "docker rm -f $container" || {
+                echo "Error: Failed to remove container $container." | tee -a "$LOG_FILE"
+                docker logs $container >> "$LOG_FILE" 2>&1
+                return 1
+            }
+            echo "Creating new container $container..." | tee -a "$LOG_FILE"
+            run_docker_command "docker run -d --name $container -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc" || {
+                echo "Error: Failed to create new container $container." | tee -a "$LOG_FILE"
+                docker logs $container >> "$LOG_FILE" 2>&1
+                return 1
+            }
+            echo "New container $container created successfully." | tee -a "$LOG_FILE"
+            # Re-run resolution setup for the new container
+            set_vnc_resolution "$container" "true"
+            if ! verify_vnc_resolution "$container"; then
+                echo "Error: VNC resolution still invalid in new container." | tee -a "$LOG_FILE"
+                docker logs $container >> "$LOG_FILE" 2>&1
+                return 1
+            fi
+        fi
     fi
 
     echo "Container startup logs:" >> "$LOG_FILE"
@@ -177,12 +220,12 @@ if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "Executing klik.sh directly from /root/Desktop..." | tee -a "$LOG_FILE"
     docker exec agitated_cannon bash -c 'export DISPLAY=:1; bash /root/Desktop/klik.sh' &
 
-    echo "Monitoring for memory usage to reach exactly 2.5Gi..." | tee -a "$LOG_FILE"
+    echo "Monitoring for memory usage to reach exactly 2.0Gi..." | tee -a "$LOG_FILE"
     while true; do
         used_mem=$(docker exec agitated_cannon free -h | awk '/^Mem:/ {print $3}')
         if [ "$used_mem" = "2.0Gi" ]; then
-            echo "✅ Memory usage inside container has reached exactly 2.5Gi." | tee -a "$LOG_FILE"
-            echo "✅ Memory usage inside container has reached exactly 2.5Gi."
+            echo "✅ Memory usage inside container has reached exactly 2.0Gi." | tee -a "$LOG_FILE"
+            echo "✅ Memory usage inside container has reached exactly 2.0Gi."
             break
         fi
         sleep 2
