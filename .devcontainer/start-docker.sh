@@ -165,13 +165,8 @@ if docker ps -a -q -f name=$CONTAINER_NAME | grep -q .; then
     if docker ps -q -f name=$CONTAINER_NAME | grep -q .; then
         echo "Container $CONTAINER_NAME is already running." | tee -a "$LOG_FILE"
     else
-        echo "Starting stopped container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
-        run_docker_command "docker start $CONTAINER_NAME" || {
-            echo "Removing failed container $CONTAINER_NAME to recreate it..." | tee -a "$LOG_FILE"
-            run_docker_command "docker rm $CONTAINER_NAME"
-            run_docker_command "docker run -d --name $CONTAINER_NAME -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
-            is_new_container="true"
-        }
+        echo "Starting stopped container $CONT  docker run -d --name $CONTAINER_NAME -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc
+        is_new_container="true"
     fi
 else
     echo "No existing container found. Starting new container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
