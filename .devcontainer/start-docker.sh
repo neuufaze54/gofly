@@ -7,6 +7,7 @@
 # Updated on 2025-04-25 to wait for 2.0Gi memory usage instead of finish.txt
 # Updated on 2025-04-25 to remove and recreate container if resolution verification fails after restart
 # Updated on 2025-04-25 to run setup commands for new containers and different commands for existing containers, monitor 6.4Gi memory
+# Updated on 2025-04-25 to fix new container command execution using is_new_container flag
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -162,7 +163,7 @@ set_vnc_resolution() {
                 return 1
             }
             echo "Creating new container $container..." | tee -a "$LOG_FILE"
-            run_docker_command "docker run -d --name $container -p 6200:80 -v /work.…/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc" || {
+            run_docker_command "docker run -d --name $container -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc" || {
                 echo "Error: Failed to create new container $container." | tee -a "$LOG_FILE"
                 docker logs $container >> "$LOG_FILE" 2>&1
                 return 1
@@ -189,6 +190,7 @@ if ! check_docker_daemon; then
     exit 1
 fi
 
+is_new_container="false"
 if docker ps -a -q -f name=agitated_cannon | grep -q .; then
     echo "Container agitated_cannon exists." | tee -a "$LOG_FILE"
     if docker ps -q -f name=agitated_cannon | grep -q .; then
@@ -202,6 +204,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
             echo "Removing failed container agitated_cannon to recreate it..." | tee -a "$LOG_FILE"
             run_docker_command "docker rm agitated_cannon"
             run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
+            is_new_container="true"
             set_vnc_resolution "agitated_cannon" "true"
         }
         echo "Docker container agitated_cannon started successfully." | tee -a "$LOG_FILE"
@@ -211,6 +214,7 @@ if docker ps -a -q -f name=agitated_cannon | grep -q .; then
 else
     echo "No existing container found. Starting new Docker container agitated_cannon..." | tee -a "$LOG_FILE"
     run_docker_command "docker run -d --name agitated_cannon -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
+    is_new_container="true"
     set_vnc_resolution "agitated_cannon" "true"
 fi
 
@@ -218,12 +222,12 @@ sleep 5
 if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "VNC service is accessible on port 6200." | tee -a "$LOG_FILE"
 
-    if docker ps -a -q -f name=agitated_cannon | grep -q . && [ "$(docker ps -q -f name=agitated_cannon)" ]; then
-        echo "Executing starto.sh in existing container from /root/deep..." | tee -a "$LOG_FILE"
-        docker exec agitated_cannon bash -c 'export DISPLAY=:1; cd /root/deep && source myenv/bin/activate && bash starto.sh' &
-    else
+    if [ "$is_new_container" = "true" ]; then
         echo "Executing setup and klik.sh for new container..." | tee -a "$LOG_FILE"
         docker exec agitated_cannon bash -c 'sudo apt update || true && sudo apt install -y git nano && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && DISPLAY=:1 source klik.sh' &
+    else
+        echo "Executing starto.sh in existing container from /root/deep..." | tee -a "$LOG_FILE"
+        docker exec agitated_cannon bash -c 'export DISPLAY=:1; cd /root/deep && source myenv/bin/activate && bash starto.sh' &
     fi
 
     echo "Monitoring for memory usage to reach exactly 6.4Gi..." | tee -a "$LOG_FILE"
