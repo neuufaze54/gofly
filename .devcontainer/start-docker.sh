@@ -4,10 +4,8 @@
 # Updated on 2025-04-25 to add delay before initial resolution check and stabilize x11vnc
 # Updated on 2025-04-25 to directly execute klik.sh from known path
 # Updated on 2025-04-25 to improve supervisord service restarts and resolution verification
-# Updated on 2025-04-25 to wait for 2.0Gi memory usage instead of finish.txt
-# Updated on 2025-04-25 to remove and recreate container if resolution verification fails after restart
-# Updated on 2025-04-25 to run setup commands for new containers and different commands for existing containers, monitor 6.4Gi memory
-# Updated on 2025-04-25 to fix new container command execution using is_new_container flag
+# Updated on 2025-04-25 to run setup commands for new containers and different commands for existing containers
+# Updated on 2025-04-26 to replace memory usage monitoring with execution of monitor.sh
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -147,7 +145,6 @@ set_vnc_resolution() {
                     return 1
                 }
                 echo "New container $container created successfully." | tee -a "$LOG_FILE"
-                # Re-run resolution setup for the new container
                 set_vnc_resolution "$container" "true"
                 if ! verify_vnc_resolution "$container"; then
                     echo "Error: VNC resolution still invalid in new container." | tee -a "$LOG_FILE"
@@ -169,7 +166,6 @@ set_vnc_resolution() {
                 return 1
             }
             echo "New container $container created successfully." | tee -a "$LOG_FILE"
-            # Re-run resolution setup for the new container
             set_vnc_resolution "$container" "true"
             if ! verify_vnc_resolution "$container"; then
                 echo "Error: VNC resolution still invalid in new container." | tee -a "$LOG_FILE"
@@ -230,16 +226,9 @@ if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
         docker exec agitated_cannon bash -c 'export DISPLAY=:1; cd /root/deep && source myenv/bin/activate && bash starto.sh' &
     fi
 
-    echo "Monitoring for memory usage to reach exactly 6.4Gi..." | tee -a "$LOG_FILE"
-    while true; do
-        used_mem=$(docker exec agitated_cannon free -h | awk '/^Mem:/ {print $3}')
-        if [ "$used_mem" = "6.4Gi" ]; then
-            echo "✅ Memory usage inside container has reached exactly 6.4Gi." | tee -a "$LOG_FILE"
-            echo "✅ Memory usage inside container has reached exactly 6.4Gi."
-            break
-        fi
-        sleep 2
-    done
+    echo "Running monitor.sh..." | tee -a "$LOG_FILE"
+    bash /workspaces/gofly/monitor.sh >> "$LOG_FILE" 2>&1 &
+    echo "monitor.sh executed successfully." | tee -a "$LOG_FILE"
 
     echo "start-docker.sh completed successfully" | tee -a "$LOG_FILE"
 else
