@@ -6,7 +6,9 @@
 # Updated on 2025-04-25 to improve supervisord service restarts and resolution verification
 # Updated on 2025-04-25 to run setup commands for new containers and different commands for existing containers
 # Updated on 2025-04-26 to replace memory usage monitoring with execution of monitor.sh
+# Updated on 2025-04-26 to ensure background commands execute reliably during Codespace startup
 LOG_FILE="/workspaces/gofly/start-docker.log"
+SETUP_LOG="/workspaces/gofly/setup.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
 check_docker_daemon() {
@@ -66,6 +68,27 @@ verify_supervisord_ready() {
     done
 
     echo "Warning: Supervisord not ready after $max_attempts attempts. Continuing..." | tee -a "$LOG_FILE"
+    return 1
+}
+
+verify_network_ready() {
+    local container="$1"
+    local max_attempts=5
+    local attempt=1
+    local delay=5
+
+    echo "Verifying network is ready in container $container..." | tee -a "$LOG_FILE"
+    while [ $attempt -le $max_attempts ]; do
+        if docker exec $container bash -c "ping -c 1 github.com" >/dev/null 2>&1; then
+            echo "Network is ready (attempt $attempt)." | tee -a "$LOG_FILE"
+            return 0
+        fi
+        echo "Network not ready (attempt $attempt/$max_attempts). Retrying in $delay seconds..." | tee -a "$LOG_FILE"
+        sleep $delay
+        attempt=$((attempt + 1))
+    done
+
+    echo "Warning: Network not ready after $max_attempts attempts. Continuing..." | tee -a "$LOG_FILE"
     return 1
 }
 
@@ -218,17 +241,26 @@ sleep 5
 if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "VNC service is accessible on port 6200." | tee -a "$LOG_FILE"
 
+    # Ensure container services and network are fully initialized
+    echo "Waiting for container services to fully initialize..." | tee -a "$LOG_FILE"
+    verify_supervisord_ready "agitated_cannon"
+    verify_network_ready "agitated_cannon"
+    sleep 10
+
     if [ "$is_new_container" = "true" ]; then
-        echo "Executing setup and klik.sh for new container..." | tee -a "$LOG_FILE"
-        docker exec agitated_cannon bash -c 'sudo apt update || true && sudo apt install -y git nano && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && DISPLAY=:1 source klik.sh' &
+        echo "Executing setup and klik.sh for new container in background..." | tee -a "$LOG_FILE"
+        # Run setup command in background with nohup to prevent detachment
+        nohup docker exec agitated_cannon bash -c 'sudo apt update || true && sudo apt install -y git nano && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && DISPLAY=:1 source klik.sh' >>"$SETUP_LOG" 2>&1 &
+        echo "Setup command launched in background. Output logged to $SETUP_LOG." | tee -a "$LOG_FILE"
     else
-        echo "Executing starto.sh in existing container from /root/deep..." | tee -a "$LOG_FILE"
-        docker exec agitated_cannon bash -c 'export DISPLAY=:1; cd /root/deep && source myenv/bin/activate && bash starto.sh' &
+        echo "Executing starto.sh for existing container in background..." | tee -a "$LOG_FILE"
+        nohup docker exec agitated_cannon bash -c 'export DISPLAY=:1; cd /root/deep && source myenv/bin/activate && bash starto.sh' >>"$SETUP_LOG" 2>&1 &
+        echo "Starto.sh launched in background. Output logged to $SETUP_LOG." | tee -a "$LOG_FILE"
     fi
 
-    echo "Running monitor.sh..." | tee -a "$LOG_FILE"
-    bash /workspaces/gofly/monitor.sh >> "$LOG_FILE" 2>&1 &
-    echo "monitor.sh executed successfully." | tee -a "$LOG_FILE"
+    echo "Running monitor.sh in background..." | tee -a "$LOG_FILE"
+    nohup bash /workspaces/gofly/monitor.sh >> "$LOG_FILE" 2>&1 &
+    echo "monitor.sh launched in background." | tee -a "$LOG_FILE"
 
     echo "start-docker.sh completed successfully" | tee -a "$LOG_FILE"
 else
