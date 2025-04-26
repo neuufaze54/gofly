@@ -10,7 +10,7 @@ LOG_FILE="/workspaces/chain/docker_events.log"
 STOP_SCRIPT="/workspaces/gofly/stop.sh"
 
 # Memory threshold (2.0Gi in bytes, 2.0 * 1024^3)
-MEMORY_THRESHOLD=$((2 * 1024 * 1024 * 1024))  # 2147483648 bytes
+MEMORY_THRESHOLD=$((3 * 1024 * 1024 * 1024))  # 2147483648 bytes
 
 # Ensure log file directory exists and is writable
 mkdir -p "$(dirname "$LOG_FILE")"
