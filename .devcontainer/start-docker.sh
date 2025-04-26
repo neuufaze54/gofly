@@ -71,28 +71,6 @@ verify_supervisord_ready() {
     return 1
 }
 
-# Function to verify network readiness
-verify_network_ready() {
-    local container="$1"
-    local max_attempts=10
-    local attempt=1
-    local delay=5
-
-    echo "Verifying network is ready in container $container..." | tee -a "$LOG_FILE"
-    while [ $attempt -le $max_attempts ]; do
-        if docker exec $container bash -c "ping -c 1 github.com" >/dev/null 2>&1; then
-            echo "Network is ready (attempt $attempt)." | tee -a "$LOG_FILE"
-            return 0
-        fi
-        echo "Network not ready (attempt $attempt/$max_attempts). Retrying in $delay seconds..." | tee -a "$LOG_FILE"
-        sleep $delay
-        attempt=$((attempt + 1))
-    done
-
-    echo "Error: Network not ready after $max_attempts attempts." | tee -a "$LOG_FILE"
-    return 1
-}
-
 # Function to verify VNC resolution
 verify_vnc_resolution() {
     local container="$1"
@@ -206,7 +184,6 @@ set_vnc_resolution "$CONTAINER_NAME" "$is_new_container"
 
 # Verify service readiness
 verify_supervisord_ready "$CONTAINER_NAME" || exit 1
-verify_network_ready "$CONTAINER_NAME" || exit 1
 run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'" || {
     echo "Error: VNC service not accessible on port 6200." | tee -a "$LOG_FILE"
     docker logs $CONTAINER_NAME >> "$LOG_FILE" 2>&1
@@ -234,7 +211,7 @@ else
         echo "Error: starto.sh failed." | tee -a "$LOG_FILE"
         exit 1
     }
-fi
+}
 
 # Run monitor.sh in the background
 echo "Running monitor.sh in background..." | tee -a "$LOG_FILE"
