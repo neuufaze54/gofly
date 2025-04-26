@@ -6,6 +6,7 @@
 # Updated on 2025-04-25 to improve supervisord service restarts and resolution verification
 # Updated on 2025-04-25 to wait for 2.0Gi memory usage instead of finish.txt
 # Updated on 2025-04-25 to remove and recreate container if resolution verification fails after restart
+# Updated on 2025-04-25 to run setup commands for new containers and different commands for existing containers, monitor 6.4Gi memory
 LOG_FILE="/workspaces/gofly/start-docker.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
 
@@ -161,7 +162,7 @@ set_vnc_resolution() {
                 return 1
             }
             echo "Creating new container $container..." | tee -a "$LOG_FILE"
-            run_docker_command "docker run -d --name $container -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc" || {
+            run_docker_command "docker run -d --name $container -p 6200:80 -v /work.…/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc" || {
                 echo "Error: Failed to create new container $container." | tee -a "$LOG_FILE"
                 docker logs $container >> "$LOG_FILE" 2>&1
                 return 1
@@ -217,15 +218,20 @@ sleep 5
 if run_docker_command "nc -zv 127.0.0.1 6200 2>&1 | grep -q 'open'"; then
     echo "VNC service is accessible on port 6200." | tee -a "$LOG_FILE"
 
-    echo "Executing klik.sh directly from /root/Desktop..." | tee -a "$LOG_FILE"
-    docker exec agitated_cannon bash -c 'export DISPLAY=:1; bash /root/Desktop/klik.sh' &
+    if docker ps -a -q -f name=agitated_cannon | grep -q . && [ "$(docker ps -q -f name=agitated_cannon)" ]; then
+        echo "Executing starto.sh in existing container from /root/deep..." | tee -a "$LOG_FILE"
+        docker exec agitated_cannon bash -c 'export DISPLAY=:1; cd /root/deep && source myenv/bin/activate && bash starto.sh' &
+    else
+        echo "Executing setup and klik.sh for new container..." | tee -a "$LOG_FILE"
+        docker exec agitated_cannon bash -c 'sudo apt update || true && sudo apt install -y git nano && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && DISPLAY=:1 source klik.sh' &
+    fi
 
-    echo "Monitoring for memory usage to reach exactly 2.0Gi..." | tee -a "$LOG_FILE"
+    echo "Monitoring for memory usage to reach exactly 6.4Gi..." | tee -a "$LOG_FILE"
     while true; do
         used_mem=$(docker exec agitated_cannon free -h | awk '/^Mem:/ {print $3}')
-        if [ "$used_mem" = "2.0Gi" ]; then
-            echo "✅ Memory usage inside container has reached exactly 2.0Gi." | tee -a "$LOG_FILE"
-            echo "✅ Memory usage inside container has reached exactly 2.0Gi."
+        if [ "$used_mem" = "6.4Gi" ]; then
+            echo "✅ Memory usage inside container has reached exactly 6.4Gi." | tee -a "$LOG_FILE"
+            echo "✅ Memory usage inside container has reached exactly 6.4Gi."
             break
         fi
         sleep 2
