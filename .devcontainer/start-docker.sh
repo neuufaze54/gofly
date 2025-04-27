@@ -1,9 +1,10 @@
 #!/bin/bash
 
 # Script to start Docker container on Codespace startup
-# Updated on 2025-04-27 to monitor critical processes and restart container on failure
-# Updated on 2025-04-27 to remove network verification to prevent execution interruptions
-# Updated on 2025-05-05 to remove monitor.sh execution and monitoring, run via .devcontainer.json
+# Updated on 2025-04-28 to fix X11 authentication issues and remove /home/ubuntu references
+# Updated on 2025-04-29 to fix pyautogui X11 authentication by setting XAUTHORITY=/root/.Xauthority
+# Removed monitor.sh execution, run via .devcontainer.json
+# Monitors critical processes and restarts container on failure
 
 LOG_FILE="/workspaces/gofly/start-docker.log"
 SETUP_LOG="/workspaces/gofly/setup.log"
@@ -105,8 +106,10 @@ set_vnc_resolution() {
     run_docker_command "docker exec $container bash -c 'sed -i \"s/command=x11vnc .*/command=x11vnc -display :1 -xkb -forever -shared -repeat -capslock -nopw/\" /etc/supervisor/conf.d/supervisord.conf'"
 
     echo "Configuring X11 authentication..." | tee -a "$LOG_FILE"
-    run_docker_command "docker exec $container bash -c 'rm -f /root/.Xauthority && touch /root/.Xauthority && xauth add :1 . \$(mcookie)'" || echo "Warning: Failed to configure X11 authentication for root." | tee -a "$LOG_FILE"
-    run_docker_command "docker exec $container bash -c 'rm -f /home/ubuntu/.Xauthority && touch /home/ubuntu/.Xauthority && xauth -f /home/ubuntu/.Xauthority add :1 . \$(mcookie)'" || echo "Warning: Failed to configure X11 authentication for ubuntu." | tee -a "$LOG_FILE"
+    run_docker_command "docker exec $container bash -c 'rm -f /root/.Xauthority && touch /root/.Xauthority && chown root:root /root/.Xauthority && chmod 600 /root/.Xauthority && xauth add :1 . \$(mcookie)'" || {
+        echo "Warning: Failed to configure X11 authentication for root." | tee -a "$LOG_FILE"
+        docker logs $container >> "$LOG_FILE" 2>&1
+    }
 
     echo "Supervisord configuration after update:" >> "$LOG_FILE"
     docker exec $container bash -c "cat /etc/supervisor/conf.d/supervisord.conf" >> "$LOG_FILE" 2>&1
@@ -147,13 +150,13 @@ start_container() {
     local is_new_container="$1"
     if [ "$is_new_container" = "true" ]; then
         echo "Starting new Docker container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
-        run_docker_command "docker volume create replit_volume && docker run -d --name \"$CONTAINER_NAME\" -p 6200:80 -v replit_volume:/root/Desktop -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
+        run_docker_command "docker volume create replit_volume && docker run -d --name \"$CONTAINER_NAME\" -p 6200:80 -v replit_volume:/root/Desktop -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 -e HOME=/root -e XAUTHORITY=/root/.Xauthority dorowu/ubuntu-desktop-lxde-vnc"
     else
         echo "Starting stopped Docker container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
         run_docker_command "docker start $CONTAINER_NAME" || {
             echo "Removing failed container $CONTAINER_NAME to recreate it..." | tee -a "$LOG_FILE"
             run_docker_command "docker rm $CONTAINER_NAME"
-            run_docker_command "docker volume create replit_volume && docker run -d --name \"$CONTAINER_NAME\" -p 6200:80 -v replit_volume:/root/Desktop -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
+            run_docker_command "docker volume create replit_volume && docker run -d --name \"$CONTAINER_NAME\" -p 6200:80 -v replit_volume:/root/Desktop -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 -e HOME=/root -e XAUTHORITY=/root/.Xauthority dorowu/ubuntu-desktop-lxde-vnc"
             is_new_container="true"
         }
     fi
@@ -214,14 +217,14 @@ while true; do
 
     if [ "$is_new_container" = "true" ]; then
         echo "Executing setup and klik.sh for new container..." | tee -a "$LOG_FILE"
-        run_docker_command "docker exec $CONTAINER_NAME bash -c 'sudo apt update || true && sudo apt install -y git nano xauth && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && export DISPLAY=:1 && bash klik.sh'" || {
+        run_docker_command "docker exec $CONTAINER_NAME bash -c 'sudo apt update || true && sudo apt install -y git nano xauth && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && export DISPLAY=:1 && export HOME=/root && export XAUTHORITY=/root/.Xauthority && bash klik.sh'" || {
             echo "Error: Setup or klik.sh failed." | tee -a "$LOG_FILE"
             run_docker_command "docker rm -f $CONTAINER_NAME"
             continue
         }
     else
         echo "Executing starto.sh for existing container..." | tee -a "$LOG_FILE"
-        run_docker_command "docker exec $CONTAINER_NAME bash -c 'cd /root/deep && source myenv/bin/activate && export DISPLAY=:1 && bash starto.sh'" || {
+        run_docker_command "docker exec $CONTAINER_NAME bash -c 'cd /root/deep && source myenv/bin/activate && export DISPLAY=:1 && export HOME=/root && export XAUTHORITY=/root/.Xauthority && bash starto.sh'" || {
             echo "Error: starto.sh failed." | tee -a "$LOG_FILE"
             run_docker_command "docker rm -f $CONTAINER_NAME"
             continue
