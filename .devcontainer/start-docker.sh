@@ -248,7 +248,7 @@ monitor_processes() {
         echo "Process status at $(date):" >> "$HEALTH_LOG"
         docker exec $CONTAINER_NAME bash -c "ps aux | grep -E '[k]lik.sh|[s]tarto.sh|[d]etector.*\.py' || true" >> "$HEALTH_LOG" 2>&1
         ps aux | grep "[b]ash /workspaces/gofly/monitor.sh" >> "$HEALTH_LOG" 2>&1 || echo "No monitor.sh process found." >> "$HEALTH_LOG"
-        sleep 200
+        sleep 30
     done
 }
 
@@ -314,7 +314,7 @@ while true; do
 
     # Wait for commands to stabilize
     echo "Sleeping for 30 seconds to allow commands to stabilize..." | tee -a "$LOG_FILE"
-    sleep 30
+    sleep 200
 
     # Verify monitor.sh is running
     if ! pgrep -f "bash /workspaces/gofly/monitor.sh" >/dev/null 2>&1; then
