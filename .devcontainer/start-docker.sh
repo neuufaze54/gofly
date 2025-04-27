@@ -3,8 +3,8 @@
 # Script to start Docker container on Codespace startup
 # Updated on 2025-04-27 to monitor critical processes and restart container on failure
 # Updated on 2025-04-27 to remove network verification to prevent execution interruptions
-# Updated on 2025-04-29 to ensure monitor.sh runs on host with robust execution and monitoring
-# Updated on 2025-04-30 to enhance monitor.sh startup, add retries, and improve debugging
+# Updated on 2025-04-30 to enhance monitor.sh startup and improve debugging
+# Updated on 2025-05-01 to run monitor.sh before klik.sh/starto.sh in background and proceed immediately
 
 LOG_FILE="/workspaces/gofly/start-docker.log"
 SETUP_LOG="/workspaces/gofly/setup.log"
@@ -279,30 +279,42 @@ while true; do
     # Execute commands based on container state
     echo "Executing commands for container (is_new_container=$is_new_container)..." | tee -a "$LOG_FILE"
     if [ "$is_new_container" = "true" ]; then
-        echo "Running setup and klik.sh..." | tee -a "$LOG_FILE"
-        run_docker_command "docker exec $CONTAINER_NAME bash -c 'sudo apt update || true && sudo apt install -y git nano xauth && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && export DISPLAY=:1 && bash klik.sh'" || {
-            echo "Error: Setup or klik.sh failed." | tee -a "$LOG_FILE"
-            run_docker_command "docker rm -f $CONTAINER_NAME"
+        # Start monitor.sh in background
+        echo "Launching monitor.sh before klik.sh..." | tee -a "$LOG_FILE"
+        if ! start_monitor; then
+            echo "Error: Failed to start monitor.sh. Restarting container..." | tee -a "$LOG_FILE"
+            run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
+            run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
+            continue
+        fi
+        # Run klik.sh in background
+        echo "Launching klik.sh in background..." | tee -a "$LOG_FILE"
+        docker exec $CONTAINER_NAME bash -c "sudo apt update || true && sudo apt install -y git nano xauth && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && export DISPLAY=:1 && bash klik.sh >> /workspaces/gofly/setup.log 2>&1 &" || {
+            echo "Error: Failed to launch klik.sh." | tee -a "$LOG_FILE"
+            run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
+            run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
             continue
         }
     else
-        echo "Running starto.sh..." | tee -a "$LOG_FILE"
-        run_docker_command "docker exec $CONTAINER_NAME bash -c 'cd /root/deep && source myenv/bin/activate && export DISPLAY=:1 && bash starto.sh'" || {
-            echo "Error: starto.sh failed." | tee -a "$LOG_FILE"
-            run_docker_command "docker rm -f $CONTAINER_NAME"
+        # Start monitor.sh in background
+        echo "Launching monitor.sh before starto.sh..." | tee -a "$LOG_FILE"
+        if ! start_monitor; then
+            echo "Error: Failed to start monitor.sh. Restarting container..." | tee -a "$LOG_FILE"
+            run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
+            run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
+            continue
+        fi
+        # Run starto.sh in background
+        echo "Launching starto.sh in background..." | tee -a "$LOG_FILE"
+        docker exec $CONTAINER_NAME bash -c "cd /root/deep && source myenv/bin/activate && export DISPLAY=:1 && bash starto.sh >> /workspaces/gofly/setup.log 2>&1 &" || {
+            echo "Error: Failed to launch starto.sh." | tee -a "$LOG_FILE"
+            run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
+            run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
             continue
         }
     fi
 
-    # Start and verify monitor.sh
-    echo "Proceeding to start monitor.sh..." | tee -a "$LOG_FILE"
-    if ! start_monitor; then
-        echo "Error: Failed to start monitor.sh. Restarting container..." | tee -a "$LOG_FILE"
-        run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
-        run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
-        continue
-    fi
-    # Double-check monitor.sh after startup
+    # Verify monitor.sh is running
     if ! pgrep -f "bash /workspaces/gofly/monitor.sh" >/dev/null 2>&1; then
         echo "Error: monitor.sh not running after startup. Check $MONITOR_LOG for errors." | tee -a "$LOG_FILE"
         cat "$MONITOR_LOG" >> "$LOG_FILE" 2>&1
