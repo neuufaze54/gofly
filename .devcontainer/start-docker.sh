@@ -129,7 +129,7 @@ set_vnc_resolution() {
     else
         echo "Error: Failed to verify VNC resolution. Recreating container..." | tee -a "$LOG_FILE"
         run_docker_command "docker rm -f $container"
-        run_docker_command "docker run -d --name $container -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
+        run_docker_command "docker volume create replit_volume && docker run -d --name \"$CONTAINER_NAME\" -p 6200:80 -v replit_volume:/root/Desktop -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
         set_vnc_resolution "$container" "true"
         verify_vnc_resolution "$container" || {
             echo "Error: VNC resolution still invalid in new container." | tee -a "$LOG_FILE"
@@ -146,13 +146,13 @@ start_container() {
     local is_new_container="$1"
     if [ "$is_new_container" = "true" ]; then
         echo "Starting new Docker container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
-        run_docker_command "docker run -d --name $CONTAINER_NAME -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
+        run_docker_command "docker volume create replit_volume && docker run -d --name \"$CONTAINER_NAME\" -p 6200:80 -v replit_volume:/root/Desktop -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
     else
         echo "Starting stopped Docker container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
         run_docker_command "docker start $CONTAINER_NAME" || {
             echo "Removing failed container $CONTAINER_NAME to recreate it..." | tee -a "$LOG_FILE"
             run_docker_command "docker rm $CONTAINER_NAME"
-            run_docker_command "docker run -d --name $CONTAINER_NAME -p 6200:80 -v /workspaces/gofly/docker-data:/home/ubuntu -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
+            run_docker_command "docker volume create replit_volume && docker run -d --name \"$CONTAINER_NAME\" -p 6200:80 -v replit_volume:/root/Desktop -e VNC_RESOLUTION=1366x641 -e RESOLUTION=1366x641 dorowu/ubuntu-desktop-lxde-vnc"
             is_new_container="true"
         }
     fi
@@ -173,13 +173,11 @@ monitor_processes() {
     echo "Starting process monitoring for container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
     while true; do
         if [ "$is_new_container" = "true" ]; then
-            # Check for klik.sh or its child processes (e.g., detector scripts)
             if ! docker exec $CONTAINER_NAME bash -c "ps aux | grep -E '[k]lik.sh|[d]etector.*\.py' | grep -v grep" >/dev/null 2>&1; then
                 echo "Critical process (klik.sh or detectors) not running at $(date). Restarting container..." | tee -a "$HEALTH_LOG"
                 return 1
             fi
         else
-            # Check for starto.sh or its child processes
             if ! docker exec $CONTAINER_NAME bash -c "ps aux | grep -E '[s]tarto.sh|[d]etector.*\.py' | grep -v grep" >/dev/null 2>&1; then
                 echo "Critical process (starto.sh or detectors) not running at $(date). Restarting container..." | tee -a "$HEALTH_LOG"
                 return 1
@@ -213,7 +211,6 @@ while true; do
         start_container "true"
     fi
 
-    # Execute commands based on container state
     if [ "$is_new_container" = "true" ]; then
         echo "Executing setup and klik.sh for new container..." | tee -a "$LOG_FILE"
         run_docker_command "docker exec $CONTAINER_NAME bash -c 'sudo apt update || true && sudo apt install -y git nano xauth && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && export DISPLAY=:1 && bash klik.sh'" || {
@@ -230,7 +227,6 @@ while true; do
         }
     fi
 
-    # Monitor processes and restart container if any fail
     if ! monitor_processes "$is_new_container"; then
         echo "Stopping and removing container $CONTAINER_NAME due to process failure..." | tee -a "$LOG_FILE"
         run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
