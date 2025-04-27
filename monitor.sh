@@ -1,5 +1,5 @@
 #!/bin/bash
-sleep 3000
+
 # Container name to monitor
 CONTAINER_NAME="agitated_cannon"
 
@@ -9,8 +9,11 @@ LOG_FILE="/workspaces/chain/docker_events.log"
 # Path to stop.sh script
 STOP_SCRIPT="/workspaces/gofly/stop.sh"
 
-# Memory threshold (2.0Gi in bytes, 2.0 * 1024^3)
-MEMORY_THRESHOLD=$((3 * 1024 * 1024 * 1024))  # 2147483648 bytes
+# Memory threshold (3.0Gi in bytes)
+MEMORY_THRESHOLD=$((3 * 1024 * 1024 * 1024))  # 3 GiB
+
+# Runtime threshold (3 hours 58 minutes = 14280 seconds)
+RUNTIME_THRESHOLD=14250
 
 # Ensure log file directory exists and is writable
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -46,47 +49,74 @@ run_stop_script() {
     fi
 }
 
-# Background process to monitor memory usage
+# Background process to monitor memory usage and runtime
 (
     while true; do
-        # Get used memory in bytes (free -b for byte output)
+        # Get used memory in bytes
         USED_MEM=$(free -b | awk '/Mem:/ {print $3}')
         echo "DEBUG: Used memory: $USED_MEM bytes at $(date)" >> "$LOG_FILE"
 
-        # Check if used memory exceeds threshold
         if [ "$USED_MEM" -ge "$MEMORY_THRESHOLD" ]; then
-            echo "ALERT: Used memory ($USED_MEM bytes) exceeded 2.0Gi at $(date)!" | tee -a "$LOG_FILE"
+            echo "ALERT: Used memory ($USED_MEM bytes) exceeded threshold at $(date)!" | tee -a "$LOG_FILE"
             run_stop_script "high memory usage"
-            # Sleep to avoid repeated triggers
             sleep 60
         fi
-        # Check every 10 seconds
+
+        # Check Codespace runtime
+        RUNTIME_SECONDS=$(cat /proc/uptime | awk '{print $1}' | cut -d. -f1)
+        echo "DEBUG: Codespace runtime: $RUNTIME_SECONDS seconds at $(date)" >> "$LOG_FILE"
+        if [ "$RUNTIME_SECONDS" -ge "$RUNTIME_THRESHOLD" ]; then
+            echo "ALERT: Codespace runtime ($RUNTIME_SECONDS seconds) exceeded threshold at $(date)!" | tee -a "$LOG_FILE"
+            run_stop_script "runtime threshold reached (3 hours 58 minutes)"
+            sleep 60  # Prevent immediate re-trigger
+        fi
+
         sleep 10
     done
 ) &
 
-# Monitor Docker events with unbuffered output
+# Monitor Docker events (smart crash detection)
 stdbuf -oL docker events \
     --filter "container=$CONTAINER_NAME" \
     --filter "event=die" \
     --filter "event=start" \
-    --format '{{.Status}} {{.Time}}' | while read -r event_status event_time; do
-    echo "DEBUG: Event received: $event_status at $event_time" | tee -a "$LOG_FILE"
+    --format '{{json .}}' | while read -r event_json; do
 
-    # On die event, run stop.sh
-    if [ "$event_status" = "die" ]; then
-        echo "ALERT: Docker container '$CONTAINER_NAME' crashed (die event) at $(date -d @$event_time)!" | tee -a "$LOG_FILE"
-        run_stop_script "container crash (die event)"
+    if [ -z "$event_json" ]; then
+        continue
     fi
 
-    # Store the event status and timestamp for crash detection
-    echo "$event_status $event_time" >> /tmp/docker_status.tmp
+    # Parse event
+    event_status=$(echo "$event_json" | jq -r '.status')
+    event_time=$(echo "$event_json" | jq -r '.timeNano')
+    exit_code=$(echo "$event_json" | jq -r '.Actor.Attributes.exitCode // empty')
 
-    # Keep only the last two events
+    # Convert timeNano to seconds
+    event_time_sec=$((event_time / 1000000000))
+
+    echo "DEBUG: Event received: $event_status at $(date -d @$event_time_sec), exit code: $exit_code" | tee -a "$LOG_FILE"
+
+    if [ "$event_status" = "die" ]; then
+        echo "DEBUG: Container died with exit code $exit_code at $(date -d @$event_time_sec)" | tee -a "$LOG_FILE"
+
+        if [ -n "$exit_code" ] && [ "$exit_code" != "0" ]; then
+            echo "ALERT: Docker container '$CONTAINER_NAME' crashed (exit code $exit_code) at $(date -d @$event_time_sec)!" | tee -a "$LOG_FILE"
+            run_stop_script "container crash (exit code $exit_code)"
+        else
+            echo "INFO: Container '$CONTAINER_NAME' stopped manually (exit code 0) at $(date -d @$event_time_sec), no action taken." | tee -a "$LOG_FILE"
+        fi
+    fi
+
+    if [ "$event_status" = "start" ]; then
+        echo "INFO: Docker container '$CONTAINER_NAME' started at $(date -d @$event_time_sec)" | tee -a "$LOG_FILE"
+    fi
+
+    # Save event to temporary file
+    echo "$event_status $event_time_sec" >> /tmp/docker_status.tmp
     tail -n 2 /tmp/docker_status.tmp > /tmp/docker_status_latest.tmp
     mv /tmp/docker_status_latest.tmp /tmp/docker_status.tmp
 
-    # Check for die -> start sequence
+    # Detect quick die -> start (crash recovery)
     if [ $(wc -l < /tmp/docker_status.tmp) -eq 2 ]; then
         prev_event=$(head -n 1 /tmp/docker_status.tmp)
         last_event=$(tail -n 1 /tmp/docker_status.tmp)
@@ -96,14 +126,13 @@ stdbuf -oL docker events \
         prev_time=$(echo "$prev_event" | awk '{print $2}')
         last_time=$(echo "$last_event" | awk '{print $2}')
 
-        echo "DEBUG: Previous: $prev_status at $prev_time, Current: $last_status at $last_time" | tee -a "$LOG_FILE"
-
         if [ "$prev_status" = "die" ] && [ "$last_status" = "start" ]; then
             time_diff=$((last_time - prev_time))
+            echo "DEBUG: Previous event: $prev_status at $prev_time, Current event: $last_status at $last_time (diff ${time_diff}s)" | tee -a "$LOG_FILE"
+
             if [ "$time_diff" -le 15 ]; then
-                echo "ALERT: Docker container '$CONTAINER_NAME' crashed and restarted at $(date)!" | tee -a "$LOG_FILE"
-                echo "ALERT: Crash detected at $(date -d @$prev_time) and restarted at $(date -d @$last_time)" | tee -a "$LOG_FILE"
-                # Note: stop.sh already triggered on die event, so no need to run again
+                echo "ALERT: Docker container '$CONTAINER_NAME' crashed and restarted quickly at $(date)" | tee -a "$LOG_FILE"
+                # No need to run stop.sh again — already handled on die event
             fi
         fi
     fi
