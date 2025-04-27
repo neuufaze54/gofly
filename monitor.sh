@@ -49,7 +49,7 @@ run_stop_script() {
     fi
 }
 
-# Background process to monitor memory usage and runtime
+# Background process to monitor memory usage, runtime, and replit.txt
 (
     while true; do
         # Get used memory in bytes
@@ -69,6 +69,22 @@ run_stop_script() {
             echo "ALERT: Codespace runtime ($RUNTIME_SECONDS seconds) exceeded threshold at $(date)!" | tee -a "$LOG_FILE"
             run_stop_script "runtime threshold reached (3 hours 58 minutes)"
             sleep 60  # Prevent immediate re-trigger
+        fi
+
+        # Check if failure.txt exists inside the container
+        FILE_EXISTENCE=$(docker exec "$CONTAINER_NAME" bash -c '[ -f /root/Desktop/failure.txt ] && echo "exists" || echo "not_exists"')
+        echo "DEBUG: failure.txt existence check: $FILE_EXISTENCE at $(date)" >> "$LOG_FILE"
+
+        if [ "$FILE_EXISTENCE" = "exists" ]; then
+            echo "ALERT: failure.txt detected inside container at $(date)!" | tee -a "$LOG_FILE"
+            run_stop_script "failure.txt detected"
+            sleep 60  # Prevent immediate re-trigger
+        fi
+        # Check if replit.txt exists and copy it
+        if docker exec "$CONTAINER_NAME" test -f /root/Desktop/replit.txt; then
+            echo "INFO: replit.txt found inside container at $(date), copying to /tmp/replit.txt" | tee -a "$LOG_FILE"
+            docker cp "$CONTAINER_NAME":/root/Desktop/replit.txt /tmp/replit.txt
+            sleep 2
         fi
 
         sleep 10
