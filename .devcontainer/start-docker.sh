@@ -105,7 +105,8 @@ set_vnc_resolution() {
     run_docker_command "docker exec $container bash -c 'sed -i \"s/command=x11vnc .*/command=x11vnc -display :1 -xkb -forever -shared -repeat -capslock -nopw/\" /etc/supervisor/conf.d/supervisord.conf'"
 
     echo "Configuring X11 authentication..." | tee -a "$LOG_FILE"
-    run_docker_command "docker exec $container bash -c 'rm -f /root/.Xauthority && touch /root/.Xauthority && xauth add :1 . \$(mcookie)'" || echo "Warning: Failed to configure X11 authentication." | tee -a "$LOG_FILE"
+    run_docker_command "docker exec $container bash -c 'rm -f /root/.Xauthority && touch /root/.Xauthority && xauth add :1 . \$(mcookie)'" || echo "Warning: Failed to configure X11 authentication for root." | tee -a "$LOG_FILE"
+    run_docker_command "docker exec $container bash -c 'rm -f /home/ubuntu/.Xauthority && touch /home/ubuntu/.Xauthority && xauth -f /home/ubuntu/.Xauthority add :1 . \$(mcookie)'" || echo "Warning: Failed to configure X11 authentication for ubuntu." | tee -a "$LOG_FILE"
 
     echo "Supervisord configuration after update:" >> "$LOG_FILE"
     docker exec $container bash -c "cat /etc/supervisor/conf.d/supervisord.conf" >> "$LOG_FILE" 2>&1
