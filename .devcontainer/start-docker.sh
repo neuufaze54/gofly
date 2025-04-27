@@ -4,9 +4,11 @@
 # Updated on 2025-04-27 to monitor critical processes and restart container on failure
 # Updated on 2025-04-27 to remove network verification to prevent execution interruptions
 # Updated on 2025-04-28 to fix monitor.sh execution and improve process monitoring
+# Updated on 2025-04-29 to ensure monitor.sh runs on host with robust execution and monitoring
 
 LOG_FILE="/workspaces/gofly/start-docker.log"
 SETUP_LOG="/workspaces/gofly/setup.log"
+MONITOR_LOG="/workspaces/gofly/monitor.log"
 CONTAINER_NAME="agitated_cannon"
 HEALTH_LOG="/workspaces/gofly/health.log"
 echo "start-docker.sh started at $(date)" > "$LOG_FILE"
@@ -168,6 +170,32 @@ start_container() {
     return 0
 }
 
+start_monitor() {
+    echo "Starting monitor.sh on host..." | tee -a "$LOG_FILE"
+    if [ ! -f /workspaces/gofly/monitor.sh ]; then
+        echo "Error: monitor.sh not found at /workspaces/gofly/monitor.sh." | tee -a "$LOG_FILE"
+        return 1
+    fi
+    chmod +x /workspaces/gofly/monitor.sh || {
+        echo "Error: Failed to make monitor.sh executable." | tee -a "$LOG_FILE"
+        return 1
+    }
+    # Clear previous monitor.log
+    > "$MONITOR_LOG"
+    # Run monitor.sh with nohup and redirect to dedicated log
+    nohup bash /workspaces/gofly/monitor.sh >> "$MONITOR_LOG" 2>&1 &
+    local monitor_pid=$!
+    sleep 2
+    if ps -p $monitor_pid >/dev/null 2>&1; then
+        echo "monitor.sh started successfully with PID $monitor_pid." | tee -a "$LOG_FILE"
+        return 0
+    else
+        echo "Error: monitor.sh failed to start. Check $MONITOR_LOG for errors." | tee -a "$LOG_FILE"
+        cat "$MONITOR_LOG" >> "$LOG_FILE" 2>&1
+        return 1
+    fi
+}
+
 monitor_processes() {
     local is_new_container="$1"
     echo "Starting process monitoring for container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
@@ -186,8 +214,8 @@ monitor_processes() {
             fi
         fi
 
-        # Check for monitor.sh
-        if ! pgrep -f "/workspaces/gofly/monitor.sh" >/dev/null 2>&1; then
+        # Check for monitor.sh on host
+        if ! pgrep -f "bash /workspaces/gofly/monitor.sh" >/dev/null 2>&1 && ! ps aux | grep "[b]ash /workspaces/gofly/monitor.sh" >/dev/null 2>&1; then
             echo "monitor.sh not running at $(date). Restarting container..." | tee -a "$HEALTH_LOG"
             return 1
         fi
@@ -196,27 +224,9 @@ monitor_processes() {
         # Debug process status
         echo "Process status at $(date):" >> "$HEALTH_LOG"
         docker exec $CONTAINER_NAME bash -c "ps aux | grep -E '[k]lik.sh|[s]tarto.sh|[d]etector.*\.py' || true" >> "$HEALTH_LOG" 2>&1
-        ps aux | grep "[m]onitor.sh" >> "$HEALTH_LOG" 2>&1 || echo "No monitor.sh process found." >> "$HEALTH_LOG"
+        ps aux | grep "[b]ash /workspaces/gofly/monitor.sh" >> "$HEALTH_LOG" 2>&1 || echo "No monitor.sh process found." >> "$HEALTH_LOG"
         sleep 30
     done
-}
-
-start_monitor() {
-    echo "Starting monitor.sh..." | tee -a "$LOG_FILE"
-    if [ ! -f /workspaces/gofly/monitor.sh ]; then
-        echo "Error: monitor.sh not found at /workspaces/gofly/monitor.sh." | tee -a "$LOG_FILE"
-        return 1
-    fi
-    nohup bash /workspaces/gofly/monitor.sh >> "$LOG_FILE" 2>&1 &
-    local monitor_pid=$!
-    sleep 2
-    if ps -p $monitor_pid >/dev/null 2>&1; then
-        echo "monitor.sh started successfully with PID $monitor_pid." | tee -a "$LOG_FILE"
-        return 0
-    else
-        echo "Error: monitor.sh failed to start." | tee -a "$LOG_FILE"
-        return 1
-    fi
 }
 
 # Main logic
@@ -258,9 +268,16 @@ while true; do
         }
     fi
 
-    # Start monitor.sh
+    # Start and verify monitor.sh
     if ! start_monitor; then
         echo "Error: Failed to start monitor.sh. Restarting container..." | tee -a "$LOG_FILE"
+        run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
+        run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
+        continue
+    fi
+    # Double-check monitor.sh after startup
+    if ! pgrep -f "bash /workspaces/gofly/monitor.sh" >/dev/null 2>&1; then
+        echo "Error: monitor.sh not running after startup. Restarting container..." | tee -a "$LOG_FILE"
         run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
         run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
         continue
