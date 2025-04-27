@@ -248,7 +248,7 @@ monitor_processes() {
         echo "Process status at $(date):" >> "$HEALTH_LOG"
         docker exec $CONTAINER_NAME bash -c "ps aux | grep -E '[k]lik.sh|[s]tarto.sh|[d]etector.*\.py' || true" >> "$HEALTH_LOG" 2>&1
         ps aux | grep "[b]ash /workspaces/gofly/monitor.sh" >> "$HEALTH_LOG" 2>&1 || echo "No monitor.sh process found." >> "$HEALTH_LOG"
-        sleep 30
+        sleep 200
     done
 }
 
