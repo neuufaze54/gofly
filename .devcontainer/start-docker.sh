@@ -1,10 +1,8 @@
 #!/bin/bash
 
 # Script to start Docker container on Codespace startup
-# Updated on 2025-04-27 to monitor critical processes and restart container on failure
-# Updated on 2025-04-27 to remove network verification to prevent execution interruptions
-# Updated on 2025-04-30 to enhance monitor.sh startup and improve debugging
-# Updated on 2025-05-01 to run monitor.sh before klik.sh/starto.sh in background and proceed immediately
+# Updated on 2025-05-01 to run monitor.sh before klik.sh/starto.sh in background
+# Updated on 2025-05-02 to sleep 30 seconds after launching commands to allow stabilization
 
 LOG_FILE="/workspaces/gofly/start-docker.log"
 SETUP_LOG="/workspaces/gofly/setup.log"
@@ -280,17 +278,17 @@ while true; do
     echo "Executing commands for container (is_new_container=$is_new_container)..." | tee -a "$LOG_FILE"
     if [ "$is_new_container" = "true" ]; then
         # Start monitor.sh in background
-        echo "Launching monitor.sh before klik.sh..." | tee -a "$LOG_FILE"
+        echo "Launching monitor.sh before preparatory commands and klik.sh..." | tee -a "$LOG_FILE"
         if ! start_monitor; then
             echo "Error: Failed to start monitor.sh. Restarting container..." | tee -a "$LOG_FILE"
             run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
             run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
             continue
         fi
-        # Run klik.sh in background
-        echo "Launching klik.sh in background..." | tee -a "$LOG_FILE"
+        # Run preparatory commands and klik.sh in background
+        echo "Launching preparatory commands and klik.sh in background..." | tee -a "$LOG_FILE"
         docker exec $CONTAINER_NAME bash -c "sudo apt update || true && sudo apt install -y git nano xauth && git clone https://github.com/kongoro20/deep /root/deep && cd /root/deep && export DISPLAY=:1 && bash klik.sh >> /workspaces/gofly/setup.log 2>&1 &" || {
-            echo "Error: Failed to launch klik.sh." | tee -a "$LOG_FILE"
+            echo "Error: Failed to launch preparatory commands or klik.sh." | tee -a "$LOG_FILE"
             run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
             run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
             continue
@@ -313,6 +311,10 @@ while true; do
             continue
         }
     fi
+
+    # Wait for commands to stabilize
+    echo "Sleeping for 30 seconds to allow commands to stabilize..." | tee -a "$LOG_FILE"
+    sleep 30
 
     # Verify monitor.sh is running
     if ! pgrep -f "bash /workspaces/gofly/monitor.sh" >/dev/null 2>&1; then
