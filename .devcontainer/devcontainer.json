@@ -14,5 +14,5 @@
         }
     },
     "postCreateCommand": "sudo apt-get update && sudo apt-get install -y netcat-traditional",
-    "postStartCommand": "bash /workspaces/gofly/monitor.sh & bash /workspaces/gofly/start-docker.sh"
+    "postStartCommand": "bash /workspaces/gofly/monitor.sh > /tmp/monitor.log 2>&1 & bash /workspaces/gofly/.devcontainer/start-docker.sh > /tmp/start-docker.log 2>&1"
 }
