@@ -33,7 +33,7 @@ jobs:
             fi
             CODESPACE_STATE=$(echo "$CODESPACE_DETAILS" | jq -r '.state')
             echo "Codespace $CODESPACE_NAME is in state: $CODESPACE_STATE"
-            if [ "$CODESPACE_STATE" = "Stopped" ]; then
+            if [ "$CODESPACE_STATE" = "Stopped" ] || [ "$CODESPACE_STATE" = "Shutdown" ]; then
               echo "Codespace is ready to restart."
               break
             fi
