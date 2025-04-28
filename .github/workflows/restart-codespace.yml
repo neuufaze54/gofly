@@ -16,14 +16,31 @@ jobs:
         run: |
           echo "${{ secrets.CODESPACE_PAT }}" | gh auth login --with-token
           gh auth status
+      - name: Check Codespace State
+        env:
+          CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
+        run: |
+          echo "Fetching Codespace details..."
+          CODESPACE_DETAILS=$(gh api /user/codespaces/$CODESPACE_NAME --jq '{state: .state, name: .name}' 2>&1)
+          CODESPACE_STATUS=$?
+          if [ $CODESPACE_STATUS -ne 0 ]; then
+            echo "Error fetching Codespace details: $CODESPACE_DETAILS"
+            exit 1
+          fi
+          CODESPACE_STATE=$(echo "$CODESPACE_DETAILS" | jq -r '.state')
+          echo "Codespace $CODESPACE_NAME is in state: $CODESPACE_STATE"
+          if [ "$CODESPACE_STATE" != "Stopped" ] && [ "$CODESPACE_STATE" != "Available" ]; then
+            echo "Error: Codespace $CODESPACE_NAME is in state $CODESPACE_STATE, cannot restart."
+            exit 1
+          fi
       - name: Restart Codespace
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 120 seconds to ensure stop completes..."
-          sleep 120
+          echo "Waiting 180 seconds to ensure stop completes..."
+          sleep 180
           RETRY_COUNT=0
-          MAX_RETRIES=3
+          MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
             START_OUTPUT=$(gh api -X POST \
               -H "Accept: application/vnd.github.v3+json" \
@@ -36,10 +53,14 @@ jobs:
             echo "Failed to restart Codespace $CODESPACE_NAME (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)."
             echo "Error details: $START_OUTPUT"
             if echo "$START_OUTPUT" | grep -q "HTTP 409"; then
-              echo "Conflict detected (HTTP 409). Retrying in 30 seconds..."
-              sleep 30
+              echo "Conflict detected (HTTP 409). Retrying in 60 seconds..."
+              sleep 60
+            elif echo "$START_OUTPUT" | grep -q "HTTP 5"; then
+              echo "Server error detected (HTTP 5xx). Retrying in 60 seconds..."
+              sleep 60
             else
-              echo "Non-retryable error. Exiting."
+              echo "Non-retryable error: $START_OUTPUT"
+              echo "Exiting with failure."
               exit 1
             fi
             RETRY_COUNT=$((RETRY_COUNT + 1))
