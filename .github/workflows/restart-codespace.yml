@@ -16,29 +16,43 @@ jobs:
         run: |
           echo "${{ secrets.CODESPACE_PAT }}" | gh auth login --with-token
           gh auth status
-      - name: Check Codespace State
+      - name: Wait for Codespace to Stop
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Fetching Codespace details..."
-          CODESPACE_DETAILS=$(gh api /user/codespaces/$CODESPACE_NAME --jq '{state: .state, name: .name}' 2>&1)
-          CODESPACE_STATUS=$?
-          if [ $CODESPACE_STATUS -ne 0 ]; then
-            echo "Error fetching Codespace details: $CODESPACE_DETAILS"
-            exit 1
-          fi
-          CODESPACE_STATE=$(echo "$CODESPACE_DETAILS" | jq -r '.state')
-          echo "Codespace $CODESPACE_NAME is in state: $CODESPACE_STATE"
-          if [ "$CODESPACE_STATE" != "Stopped" ] && [ "$CODESPACE_STATE" != "Available" ]; then
-            echo "Error: Codespace $CODESPACE_NAME is in state $CODESPACE_STATE, cannot restart."
+          echo "Checking Codespace $CODESPACE_NAME state..."
+          TIMEOUT_SECONDS=600
+          POLL_INTERVAL=30
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
+            CODESPACE_DETAILS=$(gh api /user/codespaces/$CODESPACE_NAME --jq '{state: .state, name: .name}' 2>&1)
+            CODESPACE_STATUS=$?
+            if [ $CODESPACE_STATUS -ne 0 ]; then
+              echo "Error fetching Codespace details: $CODESPACE_DETAILS"
+              exit 1
+            fi
+            CODESPACE_STATE=$(echo "$CODESPACE_DETAILS" | jq -r '.state')
+            echo "Codespace $CODESPACE_NAME is in state: $CODESPACE_STATE"
+            if [ "$CODESPACE_STATE" = "Stopped" ]; then
+              echo "Codespace is ready to restart."
+              break
+            fi
+            if [ "$CODESPACE_STATE" = "Available" ]; then
+              echo "Codespace is already Available. No restart needed."
+              exit 0
+            fi
+            echo "Waiting $POLL_INTERVAL seconds before checking again..."
+            sleep $POLL_INTERVAL
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+          if [ $ELAPSED -ge $TIMEOUT_SECONDS ]; then
+            echo "Error: Timeout after $TIMEOUT_SECONDS seconds. Codespace is still in state: $CODESPACE_STATE"
             exit 1
           fi
       - name: Restart Codespace
         env:
           CODESPACE_NAME: ${{ github.event.client_payload.codespace_name }}
         run: |
-          echo "Waiting 180 seconds to ensure stop completes..."
-          sleep 180
           RETRY_COUNT=0
           MAX_RETRIES=5
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
@@ -60,7 +74,6 @@ jobs:
               sleep 60
             else
               echo "Non-retryable error: $START_OUTPUT"
-              echo "Exiting with failure."
               exit 1
             fi
             RETRY_COUNT=$((RETRY_COUNT + 1))
