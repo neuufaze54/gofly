@@ -9,8 +9,9 @@ LOG_FILE="/workspaces/chain/docker_events.log"
 # Path to stop.sh script
 STOP_SCRIPT="/workspaces/gofly/stop.sh"
 
-# Memory threshold (3.0Gi in bytes)
-MEMORY_THRESHOLD=$((3 * 1024 * 1024 * 1024))  # 3 GiB
+# Memory threshold (6.3Gi in bytes)
+MEMORY_THRESHOLD=$((6 * 1024 * 1024 * 1024 + 322122547))  # 6.3 GiB
+
 
 # Runtime threshold (3 hours 58 minutes = 14280 seconds)
 RUNTIME_THRESHOLD=14250
@@ -72,7 +73,7 @@ run_stop_script() {
         fi
 
         # Check if failure.txt exists inside the container
-        FILE_EXISTENCE=$(docker exec "$CONTAINER_NAME" bash -c '[ -f /root/Desktop/failure.txt ] && echo "exists" || echo "not_exists"')
+        FILE_EXISTENCE=$(docker exec "$CONTAINER_NAME" bash -c '[ -f /root/failure.txt ] && echo "exists" || echo "not_exists"')
         echo "DEBUG: failure.txt existence check: $FILE_EXISTENCE at $(date)" >> "$LOG_FILE"
 
         if [ "$FILE_EXISTENCE" = "exists" ]; then
@@ -80,6 +81,7 @@ run_stop_script() {
             run_stop_script "failure.txt detected"
             sleep 60  # Prevent immediate re-trigger
         fi
+
         # Check if replit.txt exists and copy it
         if docker exec "$CONTAINER_NAME" test -f /root/Desktop/replit.txt; then
             echo "INFO: replit.txt found inside container at $(date), copying to /tmp/replit.txt" | tee -a "$LOG_FILE"
