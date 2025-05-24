@@ -176,18 +176,6 @@ monitor_processes() {
     local is_new_container="$1"
     echo "Starting process monitoring for container $CONTAINER_NAME..." | tee -a "$LOG_FILE"
     while true; do
-        if [ "$is_new_container" = "true" ]; then
-            if ! docker exec $CONTAINER_NAME bash -c "ps aux | grep -E '[k]lik.sh|[d]etector.*\.py' | grep -v grep" >/dev/null 2>&1; then
-                echo "Critical process (klik.sh or detectors) not running at $(date). Restarting container..." | tee -a "$HEALTH_LOG"
-                return 1
-            fi
-        else
-            if ! docker exec $CONTAINER_NAME bash -c "ps aux | grep -E '[s]tarto.sh|[d]etector.*\.py' | grep -v grep" >/dev/null 2>&1; then
-                echo "Critical process (starto.sh or detectors) not running at $(date). Restarting container..." | tee -a "$HEALTH_LOG"
-                return 1
-            fi
-        fi
-
         echo "All critical processes running at $(date)." >> "$HEALTH_LOG"
         sleep 30
     done
@@ -231,12 +219,8 @@ while true; do
         }
     fi
 
-    if ! monitor_processes "$is_new_container"; then
-        echo "Stopping and removing container $CONTAINER_NAME due to process failure..." | tee -a "$LOG_FILE"
-        run_docker_command "docker stop $CONTAINER_NAME" || echo "Warning: Failed to stop container." | tee -a "$LOG_FILE"
-        run_docker_command "docker rm $CONTAINER_NAME" || echo "Warning: Failed to remove container." | tee -a "$LOG_FILE"
-        continue
-    fi
+    monitor_processes "$is_new_container"
+
 done
 
 echo "start-docker.sh completed successfully" | tee -a "$LOG_FILE"
